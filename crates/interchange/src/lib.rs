@@ -8,7 +8,7 @@
 //! - **CMX 3600 EDL** (`.edl`);
 //! - **AAF** (`.aaf`) and **OMF** (`.omf`) (embedded audio is not extracted).
 //!
-//! Parsing and writing is FilmCraft's `filmcraft-interchange` (our first-party sibling project);
+//! Parsing and writing is FilmZ's `filmcraft-interchange` (our first-party sibling project);
 //! this crate maps its timeline model to compositions and back:
 //!
 //! - [`import`]: sequences → compositions (size, rate, duration, pixel aspect, start timecode,
@@ -20,7 +20,7 @@
 //!   placeholders.
 //! - [`export`]: a composition → one sequence with one track per layer (bottom layer = V1),
 //!   footage clips with their timing, Motion and Opacity; precomps as nested sequences; solids as
-//!   colour mattes; layers only EffectCraft can draw (text, shapes, effects, masks, 3D…) are
+//!   colour mattes; layers only EffectZ can draw (text, shapes, effects, masks, 3D…) are
 //!   either left out or pre-rendered by the caller (ProRes 4444 with alpha, see
 //!   [`plan_prerender`]) and referenced as media.
 //!
@@ -40,7 +40,7 @@ pub use export::{ExportOptions, ExportOutput, PrecompMode, PrerenderMode, Preren
 pub use import::{ImportOptions, ImportResult, import};
 
 pub use filmcraft_geom as fc_geom;
-/// FilmCraft's interchange crate (format readers/writers) and timeline model, re-exported so
+/// FilmZ's interchange crate (format readers/writers) and timeline model, re-exported so
 /// tests and tools can build documents in code.
 pub use filmcraft_interchange as fc;
 pub use filmcraft_media as fc_media;
@@ -166,22 +166,22 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 // ---------------------------------------------------------------- shared conversions
 
-pub(crate) fn rate_in(r: filmcraft_time::FrameRate) -> effectcraft_time::FrameRate {
-    if r.num <= 0 || r.den <= 0 { effectcraft_time::FrameRate::new(30, 1) } else { effectcraft_time::FrameRate::new(r.num, r.den) }
+pub(crate) fn rate_in(r: filmcraft_time::FrameRate) -> effectz_time::FrameRate {
+    if r.num <= 0 || r.den <= 0 { effectz_time::FrameRate::new(30, 1) } else { effectz_time::FrameRate::new(r.num, r.den) }
 }
 
-pub(crate) fn rate_out(r: effectcraft_time::FrameRate) -> filmcraft_time::FrameRate {
+pub(crate) fn rate_out(r: effectz_time::FrameRate) -> filmcraft_time::FrameRate {
     filmcraft_time::FrameRate { num: r.num, den: r.den }
 }
 
 // Both projects count time in the same ticks (254 016 000 000 per second).
-const _: () = assert!(filmcraft_time::TICKS_PER_SECOND == effectcraft_time::TICKS_PER_SECOND);
+const _: () = assert!(filmcraft_time::TICKS_PER_SECOND == effectz_time::TICKS_PER_SECOND);
 
-pub(crate) fn tick_in(t: filmcraft_time::Tick) -> effectcraft_time::Tick {
-    effectcraft_time::Tick(t.0)
+pub(crate) fn tick_in(t: filmcraft_time::Tick) -> effectz_time::Tick {
+    effectz_time::Tick(t.0)
 }
 
-pub(crate) fn tick_out(t: effectcraft_time::Tick) -> filmcraft_time::Tick {
+pub(crate) fn tick_out(t: effectz_time::Tick) -> filmcraft_time::Tick {
     filmcraft_time::Tick(t.0)
 }
 

@@ -1,8 +1,8 @@
-# Where EffectCraft falls short
+# Where EffectZ falls short
 
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (issue, PR and catalog references gap 21: percentage guides and effect colour labels in; earlier change: re-audited against `upstream/main` 470ea7a3; ranked gap list from the 10 October re-measure otherwise unchanged) · **Target:** Adobe After Effects 2026 (26.5.0.89)
 
-An honest assessment of how far EffectCraft is from being a real replacement for After Effects,
+An honest assessment of how far EffectZ is from being a real replacement for After Effects,
 and the work that closes the gap. This document is meant for contributors and agents choosing
 what to work on. [target-app-parity.md](target-app-parity.md) holds the numbers and how they were
 measured; the [ROADMAP](../ROADMAP.md) summarises both. Estimates marked "≈" are judgements from
@@ -21,7 +21,7 @@ Substance materials, ACES 2.0, Proportional Scrubbing, paste SVG/AI as shapes…
 animation presets, project and template formats, and hardware encoding.
 
 **Ready for real work ≈ 45%** answers *can someone who uses After Effects for a living do real
-work in EffectCraft?* It is still estimated, not measured. Four things hold it back: projects we
+work in EffectZ?* It is still estimated, not measured. Four things hold it back: projects we
 can't open (`.aep`), behaviour nobody has checked against After Effects (one live comparison so
 far: scalar ease, 168 samples), reliability outside macOS, and the third-party plug-ins and
 presets professional projects depend on. It sits higher than the 5 October estimate (30–50%)
@@ -71,9 +71,9 @@ are grouped by area; the issue tracker has the rest.
 | 12 | **3D interaction and depth** | No 3D transform gizmos (#392, #347); camera aperture (#260); reflections (#261); extruded surface materials beyond Front / Bevel / Side / Back Color (fb5a5e9a; #315 closed); #307 reopened (the viewer's renderer button now shows and switches the renderer, #645); Z position (#489) closed | Advanced 3D is After Effects' growth area since 2023 | 20–35 h | G2 · [ui-parity.md](ui-parity.md) |
 | 13 | **3D model formats and materials** | After Effects 26 imports FBX, USD/USDZ, STL besides glTF and OBJ (`usd_plugins`), and Substance 3D materials with mesh displacement (26.0–26.2); we read glTF, OBJ, STL (binary and ASCII, with facet colours) and FBX 7.x (binary and ASCII: meshes, hierarchy, Lambert/Phong materials and textures; no FBX animation or skinning yet) | Product shots and 3D scenes come as FBX/USDZ | 25–45 h | — · [file-format-parity.md](file-format-parity.md) |
 | 14 | **Object Matte** (26.2, disk cache in 26.5) | First slice (#783): the Object Matte effect (Effect ▸ Matte) and `objectMatte.apply` turn a point (and optional box) on a reference frame into a matte and follow the object up to 600 frames each way, or segment every frame on its own; Roto Brush's engine, cache and model (MobileSAM from Settings ▸ Roto Brush, classical graph cut without it). Since then: the Object Matte tool in the viewer (click / drag a box, hover crosshair), the box as the model's box prompt, background tracking with progress and cancel, Freeze, and segmentations kept in the disk cache (26.5). Missing: a comparison with After Effects ([plan](fidelity/object-matte.md)) | The new one-click roto | 10–20 h | G7 · [target-app-parity.md](target-app-parity.md) |
-| 15 | **Hardware video decode and encode** | No VideoToolbox, NVENC, Quick Sync or VA-API; #498 asks for it (answered: CUDA / NVENC need Nvidia's proprietary SDK through FFI, which the no-`unsafe` rule forbids); open PR #819 adds hardware decoding via `filmcraft-platform`; FilmCraft has VideoToolbox / NVENC / VA-API paths to borrow | 4K playback and export speed | 25–45 h | G5/G6 · [hardware-parity.md](hardware-parity.md) |
+| 15 | **Hardware video decode and encode** | No VideoToolbox, NVENC, Quick Sync or VA-API; #498 asks for it (answered: CUDA / NVENC need Nvidia's proprietary SDK through FFI, which the no-`unsafe` rule forbids); open PR #819 adds hardware decoding via `filmcraft-platform`; FilmZ has VideoToolbox / NVENC / VA-API paths to borrow | 4K playback and export speed | 25–45 h | G5/G6 · [hardware-parity.md](hardware-parity.md) |
 | 16 | **Localization depth** | Menus in 10 languages (ja, zh-hans, zh-hant, uk, es, pt-br, ru, fr, de, cs: 624 rows each); panels in 6 (ja, zh-hans, zh-hant, uk, pt-br, cs); effect names translated in Simplified Chinese (306, plus the generated Effect menu), their ~1,650 parameter names untranslated; Korean and Italian (After Effects ships them) absent; Hangul probe added (#599 closed) | After Effects is used heavily in Japan, China, Korea, Brazil, Europe | 60–110 h + native review | G9 · [localization-parity.md](localization-parity.md) |
-| 17 | **Media Browser lists files import refuses** | `media_browser.rs` lists AVI; `media::is_importable` has none of them (Targa and Radiance HDR import since #745; DPX and Cineon since #756, log shown as stored: no Cineon Settings conversion yet; MXF OP1a / OP-Atom since #767; FilmCraft has no AVI demuxer); #431 and #324 closed | Confusing failures on common VFX formats | 15–30 h | G6 · [file-format-parity.md](file-format-parity.md) |
+| 17 | **Media Browser lists files import refuses** | `media_browser.rs` lists AVI; `media::is_importable` has none of them (Targa and Radiance HDR import since #745; DPX and Cineon since #756, log shown as stored: no Cineon Settings conversion yet; MXF OP1a / OP-Atom since #767; FilmZ has no AVI demuxer); #431 and #324 closed | Confusing failures on common VFX formats | 15–30 h | G6 · [file-format-parity.md](file-format-parity.md) |
 | 18 | **Relative paths and relinking** | Projects store absolute footage paths; no relink when a project moves | Moving or sharing a project breaks it | 6–12 h | G4 · [file-format-parity.md](file-format-parity.md) |
 | 19 | **Plug-in ecosystem** | No After Effects SDK hosting (#600, #327 OpenFX, #334, #376 plug-in manager); our WebAssembly API has no third-party plug-ins | Many pro projects depend on Trapcode, Element, Saber… | 40–80 h for API growth; SDK hosting needs an owner decision | G8 · [scripting-parity.md](scripting-parity.md) |
 | 20 | **Multi-monitor and video output** | #486: any panel can move into a native window of its own (panel menu ▸ Move Panel to New Window, `window.panelWindow`) and so onto another screen, restored with the workspace; still missing: dragging tabs between those windows, app shortcuts while one has the focus, named workspaces remembering them, Mercury Transmit to video hardware (we have a second preview window only) | Two-screen setups are standard for professionals | 10–20 h | G2 · [hardware-parity.md](hardware-parity.md) |
@@ -96,7 +96,7 @@ The most important missing piece: it turns every other estimate here into a meas
   blend modes, track mattes, each effect at default and at non-default settings, text animators,
   expressions, 3D, motion blur, time remapping.
 - Drive After Effects through ExtendScript (see CLAUDE.md) to record property values at sampled
-  times and render reference frames; render the same projects in EffectCraft headless.
+  times and render reference frames; render the same projects in EffectZ headless.
 - Compare values exactly and frames with a perceptual metric; publish a per-feature fidelity
   score and a fidelity column in target-app-parity.md.
 - Clean room: After Effects output stays local in `plan/aftereffects/ref/` (gitignored). Commit
@@ -114,22 +114,22 @@ The most important missing piece: it turns every other estimate here into a meas
 - Run the headless snapshot and control-channel checks on Linux (X11 and Wayland) and Windows, not
   only macOS. Interactions that only fail with real input (docking drags, viewer pan, drag-and-drop
   import, inline rename) need scripted input tests.
-- Regression evidence for [#66](https://github.com/storytold/effectcraft/issues/66): scripted
+- Regression evidence for [#66](https://github.com/danish0440/effectz/issues/66): scripted
   pointer tests in `ui_viewer` and `ui_text_edit`, checked headlessly on Linux, cover viewer clicks,
   marquee selection and text picking when layers are hidden or excluded by solo. They also check
   hidden/locked solo layers and solo layers outside their active time range.
-- Regression evidence for [#67](https://github.com/storytold/effectcraft/issues/67): scripted
+- Regression evidence for [#67](https://github.com/danish0440/effectz/issues/67): scripted
   input tests in `ui_project_delete`, checked headlessly on Linux, cover Delete/Backspace on
   Project items, multiple selection and undo. They check that an unrelated Timeline layer stays,
   an empty Project selection does nothing, viewer focus still deletes layers, and typing or
   dialogs do not delete items.
-- Regression evidence for [#484](https://github.com/storytold/effectcraft/issues/484): the
+- Regression evidence for [#484](https://github.com/danish0440/effectz/issues/484): the
   `shift_delete_*` input tests in `ui_project_delete`, checked headlessly on Windows, press
   Shift+Delete both as a key and as the Cut event Windows sends for it. Items in use go without
   the prompt, with their layers, in one undo step, for single items, multiple selections and
   folder contents. Nothing happens with an empty selection, in other panels, while typing or with
   a dialog open, and the next Delete still asks.
-- Regression evidence for [#612](https://github.com/storytold/effectcraft/issues/612): the
+- Regression evidence for [#612](https://github.com/danish0440/effectz/issues/612): the
   `ui_gradient_value` and `ui_gradient_editor` input tests, checked headlessly on Windows, open
   the Gradient Editor from the Timeline's "Edit Gradient…" on a shape layer's Gradient Fill. They
   check that OK sets the edited stops (added, dragged, recoloured in the picker, down to a single
@@ -145,7 +145,7 @@ The most important missing piece: it turns every other estimate here into a meas
   tests, checked headlessly on Windows, drag a selected Gradient Fill's start and end points in
   the Composition viewer: one undo step, the layer stays, a point inside a moved and scaled group
   converts to the group's space, and the handles show only for a selected gradient.
-- Regression evidence for the toolbar's gradient swatches (#612, reported on Discord): the
+- Regression evidence for the toolbar's gradient swatches (#612, reported on GitHub): the
   `ui_toolbar_gradient` input tests, checked headlessly on Windows, click a Linear Fill swatch and
   a Radial Stroke swatch on a selected shape layer and get the Gradient Editor on its Gradient Fill
   / Gradient Stroke Colors (OK saves); without such a gradient the swatch still opens the options,
@@ -172,7 +172,7 @@ The most important missing piece: it turns every other estimate here into a meas
 - Regression evidence for the reports of 8 October, checked headlessly on Windows:
   `a_short_project_panel_draws` (#231), `viewer_press_prefers_a_selected_layer_under_the_pointer`
   (#230), `match_system_uses_the_system_language_where_there_is_a_catalog` (#229) and
-  `apps/effectcraft-web/tests/page.mjs` (#226, #225); the #225, #226 and #231 reproductions also
+  `apps/effectz-web/tests/page.mjs` (#226, #225); the #225, #226 and #231 reproductions also
   pass in the dev web build in headless Chrome 154 (device pixel ratio 2, a rejected file read,
   `GPUDevice.destroy()`).
 - Regression evidence for the Turbulent Displace, Wave Warp and Bulge pinning of #227:
@@ -187,14 +187,14 @@ The most important missing piece: it turns every other estimate here into a meas
   `effect_points_move_into_effect_space_unless_left_at_their_default` /
   `puppet_paint_liquify_and_roto_data_move_into_effect_space` (effects); see
   [architecture.md](architecture.md) §3 for what the conversion keeps.
-- Regression evidence for the interface items of [#227](https://github.com/storytold/effectcraft/issues/227),
+- Regression evidence for the interface items of [#227](https://github.com/danish0440/effectz/issues/227),
   checked headlessly on Windows: `spacebar_taps_preview_and_held_spacebar_pans_the_viewer` and
   `spacebar_drag_scrolls_the_time_graph` (Spacebar previews on its release, held it is the Hand
   tool), `right_click_in_effect_controls_shows_the_effect_menu`,
   `project_items_dropped_on_new_comp_make_a_composition` and
   `dragging_over_layer_switches_sets_them_all`.
 - Regression evidence for the shape layer items of
-  [#227](https://github.com/storytold/effectcraft/issues/227), checked headlessly on Windows:
+  [#227](https://github.com/danish0440/effectz/issues/227), checked headlessly on Windows:
   `shape_tools_draw_into_the_selected_shape_layer` and `ui_viewer`
   `shape_tool_draws_into_the_selected_shape_layer` (a shape tool adds a group to the selected
   shape layer), `shape_contents_copy_cut_and_paste_between_shape_layers` and
@@ -211,7 +211,7 @@ The most important missing piece: it turns every other estimate here into a meas
 
 Kept from the 5 October assessment's "Real-user experience" row, as evidence of what users hit and what was fixed:
 
-Issues #41–#47 (all from the Linux AppImage 0.1.1, 5 October): panning the viewer snaps back, panels can't be resized or rearranged, drag-and-drop and double-click import don't work, layer rename gets stuck, the Layer Settings arrow does nothing, the Project panel clips, the Wayland window icon is generic. Issues #63–#68 (macOS, 5 October): scaling a layer by its handles goes wrong and can stick at 0, two 3D compasses, the viewer lags while a layer is dragged (a frame renders in 20 ms but showed after ≈ 100 ms, behind RAM preview prefetch), the Discord and other links do nothing, Delete doesn't delete in the Project panel, hidden layers can be selected in the viewer. All but the last two were fixed or confirmed fixed with a test on 5–6 October (those two have community PRs); file drops still can't work on Wayland (winit has no support). The panning, rename and arrow bugs had been fixed in v0.2.0 already; nobody had told the reporter. A Windows user (6 October, on Discord) found the font menus listed only the three bundled fonts: installed fonts were read only when a project asked for one, on every platform. Fixed with a regression test on 6 October; the menus now list every installed family and its own styles, and agents get `text.fonts` / `list_fonts`. Seven reports of 6 October (Linux .deb and Windows): Project items and files couldn't be dropped on the viewer (#85), nor effects on a layer there (#88); drops in the Timeline ignored where they landed (#89); an angle's revolutions couldn't be edited (#93); toggling Audio, Lock or Shy threw away the RAM preview and playback with audio skipped frames (#103); running out of video memory panicked every frame thread and left frames stuck (#106); choosing a Render Settings template in the Render Queue did nothing (#117: any popup menu moved up to fit the window closed on the press). All seven were fixed with regression tests on 7 October. Reports of 7 October (Linux, macOS, Windows): the app opened the demo project on every launch, so a new comp landed in it (#204); a comp wider than the GPU's texture limit (11000 × 2200) at Full resolution stopped the window drawing (#201); an Intel HD Graphics 5500 couldn't start the app (#198: most likely the window's device asked for limits that GPU doesn't have, and the failure was silent); Audio Spectrum / Waveform stood still in the viewer (#209) and preview sound waited for the whole work area to cache (#208); a layer couldn't be deselected from the time graph, a shape layer's Fill and Stroke showed only with a shape tool and a drawn shape had no stroke to change, Alt+Shift+P didn't reveal Position (#205); a mask selected in the Timeline wasn't selected in the viewer, Mask Feather had no link and took negative values, the Project panel had no selection box (#203); shape layers had no Add menu for Trim Paths and the other operations, and Classic 3D comps hid Geometry Options (#206); dragging Puppet pins re-rendered the layer under the Puppet at every move (#212). All were fixed with regression tests the same day (#219–#222); the #198 fix couldn't be checked on that GPU. Reports of 8 October (browser, Windows, macOS): an empty project at 1280 × 800 with device pixel ratio 2 crashed on its first frame, because the Project panel's scroll bar clamped its thumb to a track shorter than the thumb (#231, any short panel on every platform); Media Browser ▸ Add Files… dropped a file it couldn't read without a word (#226); after the page's WebGPU device was lost, the browser editor froze on its last frame while edits went on (#225); a press in the viewer always took the topmost layer, so a selected layer behind others couldn't be dragged (#230); the language didn't follow the system's (#229); and a list of missing After Effects behaviour (#227): drawing into, copying, pasting and duplicating shape contents, Tool Creates Shape / Mask and Fill / Stroke Options, Turbulent Displace, Wave Warp and Bulge pinning all but a shape layer's bottom-right quadrant, a Spacebar hold that previewed instead of being the Hand tool, the Effect menu in Effect Controls, dropping items on New Composition and dragging over layer switches. All were fixed with regression tests the same day (#235, #237–#241); multi-monitor support and the Project panel's empty-area menu (community PR #210) remain from #227, and effect points on shape and text layers still sit half a comp off. A list of tweaks from an Intel iMac (#290): the layer bar didn't show where extended footage runs past its source, and Enable Time Remapping then ended at the extended out point; footage items had no Interpret Footage in their menu and the work area bar no menu; Label menus named the labels without their colours; the arrow keys didn't nudge layers; a straight motion path had no Bezier handles; Delete on Time Remap deleted the layer; a mask being drawn with the Pen blacked out its layer until it was closed; a double-click on a mask point didn't select the whole mask. All were fixed with regression tests the same day; the rest of #290 had been fixed already (#221, #238, #255) or came with community PRs #210 (the Timeline's empty-area menu) and #213 (tool flyouts on a long press). A report of 9 October (#397): CC Particle World ignored the comp camera and looked flat. It now sees its particles through an active camera layer, as After Effects does, and through its own Extras ▸ Effect Camera (Distance, Rotation X / Y / Z, FOV, added) otherwise; the layer cache also missed camera and light moves for the effects that read them (Card Dance, Shatter, Card Wipe, Caustics). Fixed with regression tests the same day. Most checking happens on macOS. Localisation covers the menus in Japanese, Simplified and Traditional Chinese, and Ukrainian, and since 9 October the cataloged panels, dialogs and tooltips too (Simplified and Traditional Chinese, and Ukrainian; the Japanese rows of the panel catalog are still open); no accessibility work
+Issues #41–#47 (all from the Linux AppImage 0.1.1, 5 October): panning the viewer snaps back, panels can't be resized or rearranged, drag-and-drop and double-click import don't work, layer rename gets stuck, the Layer Settings arrow does nothing, the Project panel clips, the Wayland window icon is generic. Issues #63–#68 (macOS, 5 October): scaling a layer by its handles goes wrong and can stick at 0, two 3D compasses, the viewer lags while a layer is dragged (a frame renders in 20 ms but showed after ≈ 100 ms, behind RAM preview prefetch), the Discord and other links do nothing, Delete doesn't delete in the Project panel, hidden layers can be selected in the viewer. All but the last two were fixed or confirmed fixed with a test on 5–6 October (those two have community PRs); file drops still can't work on Wayland (winit has no support). The panning, rename and arrow bugs had been fixed in v0.2.0 already; nobody had told the reporter. A Windows user (6 October, on GitHub) found the font menus listed only the three bundled fonts: installed fonts were read only when a project asked for one, on every platform. Fixed with a regression test on 6 October; the menus now list every installed family and its own styles, and agents get `text.fonts` / `list_fonts`. Seven reports of 6 October (Linux .deb and Windows): Project items and files couldn't be dropped on the viewer (#85), nor effects on a layer there (#88); drops in the Timeline ignored where they landed (#89); an angle's revolutions couldn't be edited (#93); toggling Audio, Lock or Shy threw away the RAM preview and playback with audio skipped frames (#103); running out of video memory panicked every frame thread and left frames stuck (#106); choosing a Render Settings template in the Render Queue did nothing (#117: any popup menu moved up to fit the window closed on the press). All seven were fixed with regression tests on 7 October. Reports of 7 October (Linux, macOS, Windows): the app opened the demo project on every launch, so a new comp landed in it (#204); a comp wider than the GPU's texture limit (11000 × 2200) at Full resolution stopped the window drawing (#201); an Intel HD Graphics 5500 couldn't start the app (#198: most likely the window's device asked for limits that GPU doesn't have, and the failure was silent); Audio Spectrum / Waveform stood still in the viewer (#209) and preview sound waited for the whole work area to cache (#208); a layer couldn't be deselected from the time graph, a shape layer's Fill and Stroke showed only with a shape tool and a drawn shape had no stroke to change, Alt+Shift+P didn't reveal Position (#205); a mask selected in the Timeline wasn't selected in the viewer, Mask Feather had no link and took negative values, the Project panel had no selection box (#203); shape layers had no Add menu for Trim Paths and the other operations, and Classic 3D comps hid Geometry Options (#206); dragging Puppet pins re-rendered the layer under the Puppet at every move (#212). All were fixed with regression tests the same day (#219–#222); the #198 fix couldn't be checked on that GPU. Reports of 8 October (browser, Windows, macOS): an empty project at 1280 × 800 with device pixel ratio 2 crashed on its first frame, because the Project panel's scroll bar clamped its thumb to a track shorter than the thumb (#231, any short panel on every platform); Media Browser ▸ Add Files… dropped a file it couldn't read without a word (#226); after the page's WebGPU device was lost, the browser editor froze on its last frame while edits went on (#225); a press in the viewer always took the topmost layer, so a selected layer behind others couldn't be dragged (#230); the language didn't follow the system's (#229); and a list of missing After Effects behaviour (#227): drawing into, copying, pasting and duplicating shape contents, Tool Creates Shape / Mask and Fill / Stroke Options, Turbulent Displace, Wave Warp and Bulge pinning all but a shape layer's bottom-right quadrant, a Spacebar hold that previewed instead of being the Hand tool, the Effect menu in Effect Controls, dropping items on New Composition and dragging over layer switches. All were fixed with regression tests the same day (#235, #237–#241); multi-monitor support and the Project panel's empty-area menu (community PR #210) remain from #227, and effect points on shape and text layers still sit half a comp off. A list of tweaks from an Intel iMac (#290): the layer bar didn't show where extended footage runs past its source, and Enable Time Remapping then ended at the extended out point; footage items had no Interpret Footage in their menu and the work area bar no menu; Label menus named the labels without their colours; the arrow keys didn't nudge layers; a straight motion path had no Bezier handles; Delete on Time Remap deleted the layer; a mask being drawn with the Pen blacked out its layer until it was closed; a double-click on a mask point didn't select the whole mask. All were fixed with regression tests the same day; the rest of #290 had been fixed already (#221, #238, #255) or came with community PRs #210 (the Timeline's empty-area menu) and #213 (tool flyouts on a long press). A report of 9 October (#397): CC Particle World ignored the comp camera and looked flat. It now sees its particles through an active camera layer, as After Effects does, and through its own Extras ▸ Effect Camera (Distance, Rotation X / Y / Z, FOV, added) otherwise; the layer cache also missed camera and light moves for the effects that read them (Card Dance, Shatter, Card Wipe, Caustics). Fixed with regression tests the same day. Most checking happens on macOS. Localisation covers the menus in Japanese, Simplified and Traditional Chinese, and Ukrainian, and since 9 October the cataloged panels, dialogs and tooltips too (Simplified and Traditional Chinese, and Ukrainian; the Japanese rows of the panel catalog are still open); no accessibility work
 
 ### G3. Stability and a green main
 
@@ -220,9 +220,9 @@ Issues #41–#47 (all from the Linux AppImage 0.1.1, 5 October): panning the vie
 - Fuzz the inputs we don't control: project files, imported media and documents, expressions,
   scripts, control-channel and MCP requests. Every crash found becomes a regression test
   (AGENTS.md "Never crash"). Project files are fuzzed (#779): a seeded, dependency-free mutation
-  fuzzer runs in `cargo test -p effectcraft-engine` (`fuzz_file_open_never_crashes`, `.ecproj`
+  fuzzer runs in `cargo test -p effectz-engine` (`fuzz_file_open_never_crashes`, `.ecproj`
   JSON and `.ecprojx` XML through File ▸ Open, the first queries and a thumbnail render; longer
-  runs via `EFFECTCRAFT_FUZZ_ITERS` / `EFFECTCRAFT_FUZZ_SECS`). It found one crash, deeply nested
+  runs via `EFFECTZ_FUZZ_ITERS` / `EFFECTZ_FUZZ_SECS`). It found one crash, deeply nested
   XML overflowing the stack, now refused. Imported media and documents, expressions, scripts and
   control-channel / MCP requests are still to do.
 - Run the gate on every pull request in CI (gap 4): today no workflow runs the tests on PRs.
@@ -267,7 +267,7 @@ Issues #41–#47 (all from the Linux AppImage 0.1.1, 5 October): panning the vie
 
 - Decided on 5 October 2026 for Roto Brush: licensed weights with pure-Rust inference, if the
   impact on the system is low, in a composable, swappable module. Done in M13.35: the
-  `effectcraft-segment` crate (a `MaskModel` interface, a registry that only accepts
+  `effectz-segment` crate (a `MaskModel` interface, a registry that only accepts
   open-source licences, MobileSAM under Apache-2.0), weights downloaded on demand and verified,
   Settings ▸ Roto Brush to choose. Next: measure it against After Effects (G1); faster encoders
   (GPU) for long shots.
@@ -279,10 +279,10 @@ Issues #41–#47 (all from the Linux AppImage 0.1.1, 5 October): panning the vie
 
 ### G8. Plug-in ecosystem
 
-- After Effects SDK plug-ins cannot run in EffectCraft. Our own WebAssembly plug-in API exists
+- After Effects SDK plug-ins cannot run in EffectZ. Our own WebAssembly plug-in API exists
   ([plugins.md](plugins.md)). Grow it: documentation, examples, and original effects that cover
   what the most common third-party plug-ins are used for (particles, glows, 3D objects, sabers).
-- Features that come from third parties in After Effects are extensions in EffectCraft too, built
+- Features that come from third parties in After Effects are extensions in EffectZ too, built
   on the same extension points as After Effects: scripts, ScriptUI panels and effect plug-ins
   ([plugins.md](plugins.md#extension-points-compared-with-after-effects) compares them). ScriptUI
   panels in the user's ScriptUI Panels folder are listed in the Window menu, dock like any panel

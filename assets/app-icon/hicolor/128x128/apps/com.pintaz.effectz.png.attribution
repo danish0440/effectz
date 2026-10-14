@@ -1,0 +1,8 @@
+asset:        com.pintaz.effectz.png
+title:        EffectZ app icon, Linux hicolor 128x128
+author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: assets/app-icon/LICENSE.txt
+added:        2026-10-02 by EffectZ contributors (Claude agent, app icon)
+notes:        Rendered from effectz.svg with resvg by packaging/icons.sh.

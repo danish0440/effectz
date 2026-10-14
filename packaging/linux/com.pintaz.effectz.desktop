@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=EffectZ
+GenericName=Motion Graphics Editor
+Comment=Motion graphics and visual effects compositor
+Exec=effectz %F
+TryExec=effectz
+Icon=com.pintaz.effectz
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.pintaz.effectz
+Categories=AudioVideo;Video;Graphics;2DGraphics;
+Keywords=motion;graphics;animation;compositor;effects;keyframe;vfx;

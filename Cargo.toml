@@ -8,42 +8,42 @@ version = "0.9.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
-repository = "https://github.com/storytold/effectcraft"
+repository = "https://github.com/danish0440/effectz"
 
 [workspace.dependencies]
 # internal
-effectcraft-time = { path = "crates/time" }
-effectcraft-geom = { path = "crates/geom" }
-effectcraft-color = { path = "crates/color" }
-effectcraft-raster = { path = "crates/raster" }
-effectcraft-path = { path = "crates/path" }
-effectcraft-keyframe = { path = "crates/keyframe" }
-effectcraft-project = { path = "crates/project" }
-effectcraft-text = { path = "crates/text" }
-effectcraft-effects = { path = "crates/effects" }
-effectcraft-track = { path = "crates/track" }
-effectcraft-segment = { path = "crates/segment" }
-effectcraft-model = { path = "crates/model" }
-effectcraft-render = { path = "crates/render" }
-effectcraft-gpu = { path = "crates/gpu" }
-effectcraft-media = { path = "crates/media" }
-effectcraft-export = { path = "crates/export" }
-effectcraft-expr = { path = "crates/expr" }
-effectcraft-lottie = { path = "crates/lottie" }
-effectcraft-interchange = { path = "crates/interchange" }
-effectcraft-pdf = { path = "crates/pdf" }
-effectcraft-psd = { path = "crates/psd" }
-effectcraft-vp9enc = { path = "crates/vp9enc" }
-effectcraft-svg = { path = "crates/svg" }
-effectcraft-engine = { path = "crates/engine" }
-effectcraft-host = { path = "crates/host" }
-effectcraft-ui-egui = { path = "crates/ui-egui" }
-effectcraft-automation = { path = "crates/automation" }
-effectcraft-opusenc = { path = "crates/opusenc" }
-effectcraft-script = { path = "crates/script" }
-effectcraft-hevcenc = { path = "crates/hevcenc" }
-effectcraft-av1enc = { path = "crates/av1enc" }
-effectcraft-plugin = { path = "crates/plugin" }
+effectz-time = { path = "crates/time" }
+effectz-geom = { path = "crates/geom" }
+effectz-color = { path = "crates/color" }
+effectz-raster = { path = "crates/raster" }
+effectz-path = { path = "crates/path" }
+effectz-keyframe = { path = "crates/keyframe" }
+effectz-project = { path = "crates/project" }
+effectz-text = { path = "crates/text" }
+effectz-effects = { path = "crates/effects" }
+effectz-track = { path = "crates/track" }
+effectz-segment = { path = "crates/segment" }
+effectz-model = { path = "crates/model" }
+effectz-render = { path = "crates/render" }
+effectz-gpu = { path = "crates/gpu" }
+effectz-media = { path = "crates/media" }
+effectz-export = { path = "crates/export" }
+effectz-expr = { path = "crates/expr" }
+effectz-lottie = { path = "crates/lottie" }
+effectz-interchange = { path = "crates/interchange" }
+effectz-pdf = { path = "crates/pdf" }
+effectz-psd = { path = "crates/psd" }
+effectz-vp9enc = { path = "crates/vp9enc" }
+effectz-svg = { path = "crates/svg" }
+effectz-engine = { path = "crates/engine" }
+effectz-host = { path = "crates/host" }
+effectz-ui-egui = { path = "crates/ui-egui" }
+effectz-automation = { path = "crates/automation" }
+effectz-opusenc = { path = "crates/opusenc" }
+effectz-script = { path = "crates/script" }
+effectz-hevcenc = { path = "crates/hevcenc" }
+effectz-av1enc = { path = "crates/av1enc" }
+effectz-plugin = { path = "crates/plugin" }
 
 # foundation
 thiserror = "2"
@@ -69,7 +69,7 @@ harfrust = { version = "0.12", default-features = false, features = ["std"] }
 exr = "1.74"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
-# media codecs + containers: FilmCraft's pure-Rust crates, pinned to a revision (plan/adr/0001).
+# media codecs + containers: FilmZ's pure-Rust crates, pinned to a revision (plan/adr/0001).
 # Only `crates/media`, `crates/export` and `crates/interchange` may depend on these.
 filmcraft-codecs = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 filmcraft-media = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
@@ -81,10 +81,10 @@ filmcraft-h264enc = { git = "https://github.com/storytold/filmcraft", rev = "2c5
 filmcraft-prores = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 filmcraft-aac = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 filmcraft-isobmff = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
-# decoder used as the round-trip oracle of effectcraft-opusenc (crates/export dev-dependency)
+# decoder used as the round-trip oracle of effectz-opusenc (crates/export dev-dependency)
 filmcraft-opus = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 filmcraft-vp9 = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
-# decoders used as the round-trip oracles of effectcraft-hevcenc / effectcraft-av1enc (dev-dependencies only)
+# decoders used as the round-trip oracles of effectz-hevcenc / effectz-av1enc (dev-dependencies only)
 filmcraft-hevc = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 filmcraft-av1 = { git = "https://github.com/storytold/filmcraft", rev = "2c5ba7a72619935f0481f99d59409e0d1844b234" }
 # timeline interchange (EDL, FCP7 XML, FCPXML, OTIO) for Premiere Pro interop (crates/interchange only)
@@ -108,7 +108,7 @@ cpal = "0.16"
 # The operating system's interface language (MIT/Apache-2.0, no dependencies on desktop).
 sys-locale = "0.3"
 
-# Local co-development against a FilmCraft checkout next to this repo: uncomment.
+# Local co-development against a FilmZ checkout next to this repo: uncomment.
 # [patch."https://github.com/storytold/filmcraft"]
 # filmcraft-codecs = { path = "../filmcraft/crates/codecs" }
 # filmcraft-media = { path = "../filmcraft/crates/media" }
@@ -137,43 +137,43 @@ opt-level = 2
 opt-level = 1
 
 # Pixel hot loops: keep debug builds interactive.
-[profile.dev.package.effectcraft-raster]
+[profile.dev.package.effectz-raster]
 opt-level = 3
 
-[profile.dev.package.effectcraft-render]
+[profile.dev.package.effectz-render]
 opt-level = 3
 
-[profile.dev.package.effectcraft-gpu]
+[profile.dev.package.effectz-gpu]
 opt-level = 3
 
-[profile.dev.package.effectcraft-effects]
+[profile.dev.package.effectz-effects]
 opt-level = 3
 
-[profile.dev.package.effectcraft-track]
+[profile.dev.package.effectz-track]
 opt-level = 3
 
-[profile.dev.package.effectcraft-path]
+[profile.dev.package.effectz-path]
 opt-level = 3
 
-[profile.dev.package.effectcraft-media]
+[profile.dev.package.effectz-media]
 opt-level = 3
 
-[profile.dev.package.effectcraft-opusenc]
+[profile.dev.package.effectz-opusenc]
 opt-level = 3
 
-[profile.dev.package.effectcraft-export]
+[profile.dev.package.effectz-export]
 opt-level = 3
 
-[profile.dev.package.effectcraft-vp9enc]
+[profile.dev.package.effectz-vp9enc]
 opt-level = 3
 
-[profile.dev.package.effectcraft-hevcenc]
+[profile.dev.package.effectz-hevcenc]
 opt-level = 3
 
-[profile.dev.package.effectcraft-av1enc]
+[profile.dev.package.effectz-av1enc]
 opt-level = 3
 
-# FilmCraft codec hot loops (same settings as FilmCraft's own workspace).
+# FilmZ codec hot loops (same settings as FilmZ's own workspace).
 [profile.dev.package.filmcraft-h264]
 opt-level = 3
 

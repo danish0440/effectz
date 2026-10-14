@@ -1,10 +1,10 @@
 //! Sample positions through the public native WAV exporter, using a tiny recorded impulse.
-use effectcraft_export::render_queue::{AudioFormat, OutputFormat, OutputModule, RenderSettings};
-use effectcraft_export::{Job, JobOptions, Sink, export};
-use effectcraft_project::{Comp, Footage, FootageKind, ItemId, ItemKind, LayerSource, Project, build};
-use effectcraft_raster::Image;
-use effectcraft_render::FootageSource;
-use effectcraft_time::{FrameRate, Tick};
+use effectz_export::render_queue::{AudioFormat, OutputFormat, OutputModule, RenderSettings};
+use effectz_export::{Job, JobOptions, Sink, export};
+use effectz_project::{Comp, Footage, FootageKind, ItemId, ItemKind, LayerSource, Project, build};
+use effectz_raster::Image;
+use effectz_render::FootageSource;
+use effectz_time::{FrameRate, Tick};
 use std::sync::{Arc, Mutex};
 
 struct Impulse {

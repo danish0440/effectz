@@ -1142,13 +1142,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft"
+name = "effectz"
 version = "0.9.2"
 dependencies = [
  "cpal",
- "effectcraft-engine",
- "effectcraft-host",
- "effectcraft-ui-egui",
+ "effectz-engine",
+ "effectz-host",
+ "effectz-ui-egui",
  "eframe",
  "egui",
  "fmv-macos-events",
@@ -1167,42 +1167,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-automation"
+name = "effectz-automation"
 version = "0.9.2"
 dependencies = [
- "effectcraft-engine",
- "effectcraft-host",
- "effectcraft-script",
+ "effectz-engine",
+ "effectz-host",
+ "effectz-script",
  "image",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "effectcraft-av1enc"
+name = "effectz-av1enc"
 version = "0.9.2"
 dependencies = [
  "filmcraft-av1",
 ]
 
 [[package]]
-name = "effectcraft-cli"
+name = "effectz-cli"
 version = "0.9.2"
 dependencies = [
  "cpu-time",
- "effectcraft-automation",
- "effectcraft-engine",
- "effectcraft-gpu",
- "effectcraft-host",
- "effectcraft-render",
- "effectcraft-time",
- "effectcraft-ui-egui",
+ "effectz-automation",
+ "effectz-engine",
+ "effectz-gpu",
+ "effectz-host",
+ "effectz-render",
+ "effectz-time",
+ "effectz-ui-egui",
  "image",
  "serde_json",
 ]
 
 [[package]]
-name = "effectcraft-color"
+name = "effectz-color"
 version = "0.9.2"
 dependencies = [
  "proptest",
@@ -1210,16 +1210,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-effects"
+name = "effectz-effects"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-project",
- "effectcraft-raster",
- "effectcraft-segment",
- "effectcraft-track",
+ "effectz-color",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-project",
+ "effectz-raster",
+ "effectz-segment",
+ "effectz-track",
  "log",
  "rayon",
  "serde",
@@ -1227,27 +1227,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-engine"
+name = "effectz-engine"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-geom",
- "effectcraft-interchange",
- "effectcraft-keyframe",
- "effectcraft-lottie",
- "effectcraft-model",
- "effectcraft-path",
- "effectcraft-pdf",
- "effectcraft-project",
- "effectcraft-psd",
- "effectcraft-raster",
- "effectcraft-render",
- "effectcraft-segment",
- "effectcraft-svg",
- "effectcraft-text",
- "effectcraft-time",
- "effectcraft-track",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-geom",
+ "effectz-interchange",
+ "effectz-keyframe",
+ "effectz-lottie",
+ "effectz-model",
+ "effectz-path",
+ "effectz-pdf",
+ "effectz-project",
+ "effectz-psd",
+ "effectz-raster",
+ "effectz-render",
+ "effectz-segment",
+ "effectz-svg",
+ "effectz-text",
+ "effectz-time",
+ "effectz-track",
  "exr",
  "image",
  "kurbo",
@@ -1260,21 +1260,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-export"
+name = "effectz-export"
 version = "0.9.2"
 dependencies = [
- "effectcraft-av1enc",
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-hevcenc",
- "effectcraft-keyframe",
- "effectcraft-media",
- "effectcraft-opusenc",
- "effectcraft-project",
- "effectcraft-raster",
- "effectcraft-render",
- "effectcraft-time",
- "effectcraft-vp9enc",
+ "effectz-av1enc",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-hevcenc",
+ "effectz-keyframe",
+ "effectz-media",
+ "effectz-opusenc",
+ "effectz-project",
+ "effectz-raster",
+ "effectz-render",
+ "effectz-time",
+ "effectz-vp9enc",
  "filmcraft-aac",
  "filmcraft-h264enc",
  "filmcraft-isobmff",
@@ -1290,24 +1290,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-expr"
+name = "effectz-expr"
 version = "0.9.2"
 dependencies = [
  "boa_engine",
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-path",
- "effectcraft-project",
- "effectcraft-render",
- "effectcraft-text",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-path",
+ "effectz-project",
+ "effectz-render",
+ "effectz-text",
+ "effectz-time",
  "serde_json",
 ]
 
 [[package]]
-name = "effectcraft-geom"
+name = "effectz-geom"
 version = "0.9.2"
 dependencies = [
  "proptest",
@@ -1315,19 +1315,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-gpu"
+name = "effectz-gpu"
 version = "0.9.2"
 dependencies = [
  "bytemuck",
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-project",
- "effectcraft-raster",
- "effectcraft-render",
- "effectcraft-text",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-project",
+ "effectz-raster",
+ "effectz-render",
+ "effectz-text",
+ "effectz-time",
  "js-sys",
  "log",
  "pollster 0.4.0",
@@ -1337,29 +1337,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-hevcenc"
+name = "effectz-hevcenc"
 version = "0.9.2"
 dependencies = [
  "filmcraft-hevc",
 ]
 
 [[package]]
-name = "effectcraft-host"
+name = "effectz-host"
 version = "0.9.2"
 dependencies = [
- "effectcraft-engine",
- "effectcraft-export",
- "effectcraft-expr",
- "effectcraft-interchange",
- "effectcraft-media",
- "effectcraft-pdf",
- "effectcraft-plugin",
- "effectcraft-project",
- "effectcraft-psd",
- "effectcraft-raster",
- "effectcraft-script",
- "effectcraft-svg",
- "effectcraft-time",
+ "effectz-engine",
+ "effectz-export",
+ "effectz-expr",
+ "effectz-interchange",
+ "effectz-media",
+ "effectz-pdf",
+ "effectz-plugin",
+ "effectz-project",
+ "effectz-psd",
+ "effectz-raster",
+ "effectz-script",
+ "effectz-svg",
+ "effectz-time",
  "exr",
  "gif",
  "image",
@@ -1369,13 +1369,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-interchange"
+name = "effectz-interchange"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-keyframe",
- "effectcraft-project",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-keyframe",
+ "effectz-project",
+ "effectz-time",
  "filmcraft-color",
  "filmcraft-geom",
  "filmcraft-interchange",
@@ -1388,46 +1388,46 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-keyframe"
+name = "effectz-keyframe"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-geom",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-geom",
+ "effectz-time",
  "proptest",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "effectcraft-lottie"
+name = "effectz-lottie"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-keyframe",
- "effectcraft-path",
- "effectcraft-project",
- "effectcraft-render",
- "effectcraft-text",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-keyframe",
+ "effectz-path",
+ "effectz-project",
+ "effectz-render",
+ "effectz-text",
+ "effectz-time",
  "kurbo",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "effectcraft-media"
+name = "effectz-media"
 version = "0.9.2"
 dependencies = [
- "effectcraft-model",
- "effectcraft-pdf",
- "effectcraft-project",
- "effectcraft-psd",
- "effectcraft-raster",
- "effectcraft-render",
- "effectcraft-svg",
- "effectcraft-time",
+ "effectz-model",
+ "effectz-pdf",
+ "effectz-project",
+ "effectz-psd",
+ "effectz-raster",
+ "effectz-render",
+ "effectz-svg",
+ "effectz-time",
  "exr",
  "filmcraft-codecs",
  "filmcraft-color",
@@ -1444,10 +1444,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-model"
+name = "effectz-model"
 version = "0.9.2"
 dependencies = [
- "effectcraft-geom",
+ "effectz-geom",
  "image",
  "miniz_oxide 0.8.9",
  "serde",
@@ -1456,31 +1456,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-opusenc"
+name = "effectz-opusenc"
 version = "0.9.2"
 dependencies = [
  "filmcraft-opus",
 ]
 
 [[package]]
-name = "effectcraft-path"
+name = "effectz-path"
 version = "0.9.2"
 dependencies = [
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-raster",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-raster",
  "kurbo",
  "linesweeper",
  "tiny-skia",
 ]
 
 [[package]]
-name = "effectcraft-pdf"
+name = "effectz-pdf"
 version = "0.9.2"
 dependencies = [
- "effectcraft-raster",
- "effectcraft-svg",
- "effectcraft-text",
+ "effectz-raster",
+ "effectz-svg",
+ "effectz-text",
  "image",
  "kurbo",
  "miniz_oxide 0.8.9",
@@ -1489,60 +1489,60 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-plugin"
+name = "effectz-plugin"
 version = "0.9.2"
 dependencies = [
- "effectcraft-effects",
- "effectcraft-keyframe",
- "effectcraft-project",
- "effectcraft-raster",
+ "effectz-effects",
+ "effectz-keyframe",
+ "effectz-project",
+ "effectz-raster",
  "serde_json",
  "wasmi",
 ]
 
 [[package]]
-name = "effectcraft-project"
+name = "effectz-project"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-time",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "effectcraft-psd"
+name = "effectz-psd"
 version = "0.9.2"
 dependencies = [
  "miniz_oxide 0.8.9",
 ]
 
 [[package]]
-name = "effectcraft-raster"
+name = "effectz-raster"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-geom",
+ "effectz-color",
+ "effectz-geom",
  "rayon",
 ]
 
 [[package]]
-name = "effectcraft-render"
+name = "effectz-render"
 version = "0.9.2"
 dependencies = [
- "effectcraft-color",
- "effectcraft-effects",
- "effectcraft-geom",
- "effectcraft-keyframe",
- "effectcraft-model",
- "effectcraft-path",
- "effectcraft-project",
- "effectcraft-raster",
- "effectcraft-text",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-effects",
+ "effectz-geom",
+ "effectz-keyframe",
+ "effectz-model",
+ "effectz-path",
+ "effectz-project",
+ "effectz-raster",
+ "effectz-text",
+ "effectz-time",
  "kurbo",
  "log",
  "lz4_flex",
@@ -1552,24 +1552,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-script"
+name = "effectz-script"
 version = "0.9.2"
 dependencies = [
  "boa_engine",
- "effectcraft-engine",
- "effectcraft-expr",
- "effectcraft-keyframe",
- "effectcraft-path",
- "effectcraft-project",
- "effectcraft-psd",
- "effectcraft-render",
- "effectcraft-time",
+ "effectz-engine",
+ "effectz-expr",
+ "effectz-keyframe",
+ "effectz-path",
+ "effectz-project",
+ "effectz-psd",
+ "effectz-render",
+ "effectz-time",
  "serde_json",
  "web-time",
 ]
 
 [[package]]
-name = "effectcraft-segment"
+name = "effectz-segment"
 version = "0.9.2"
 dependencies = [
  "miniz_oxide 0.8.9",
@@ -1578,22 +1578,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-svg"
+name = "effectz-svg"
 version = "0.9.2"
 dependencies = [
- "effectcraft-geom",
- "effectcraft-path",
- "effectcraft-raster",
+ "effectz-geom",
+ "effectz-path",
+ "effectz-raster",
  "kurbo",
  "rayon",
  "roxmltree",
 ]
 
 [[package]]
-name = "effectcraft-text"
+name = "effectz-text"
 version = "0.9.2"
 dependencies = [
- "effectcraft-keyframe",
+ "effectz-keyframe",
  "harfrust",
  "kurbo",
  "skrifa",
@@ -1602,7 +1602,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-time"
+name = "effectz-time"
 version = "0.9.2"
 dependencies = [
  "proptest",
@@ -1610,11 +1610,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-track"
+name = "effectz-track"
 version = "0.9.2"
 dependencies = [
- "effectcraft-raster",
- "effectcraft-segment",
+ "effectz-raster",
+ "effectz-segment",
  "rayon",
  "serde",
  "serde_json",
@@ -1622,21 +1622,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-ui-egui"
+name = "effectz-ui-egui"
 version = "0.9.2"
 dependencies = [
  "craft-ui",
- "effectcraft-color",
- "effectcraft-engine",
- "effectcraft-geom",
- "effectcraft-gpu",
- "effectcraft-host",
- "effectcraft-keyframe",
- "effectcraft-path",
- "effectcraft-project",
- "effectcraft-render",
- "effectcraft-text",
- "effectcraft-time",
+ "effectz-color",
+ "effectz-engine",
+ "effectz-geom",
+ "effectz-gpu",
+ "effectz-host",
+ "effectz-keyframe",
+ "effectz-path",
+ "effectz-project",
+ "effectz-render",
+ "effectz-text",
+ "effectz-time",
  "eframe",
  "egui",
  "egui_kittest",
@@ -1654,20 +1654,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "effectcraft-vp9enc"
+name = "effectz-vp9enc"
 version = "0.9.2"
 
 [[package]]
-name = "effectcraft-web"
+name = "effectz-web"
 version = "0.9.2"
 dependencies = [
- "effectcraft-engine",
- "effectcraft-export",
- "effectcraft-expr",
- "effectcraft-gpu",
- "effectcraft-host",
- "effectcraft-media",
- "effectcraft-ui-egui",
+ "effectz-engine",
+ "effectz-export",
+ "effectz-expr",
+ "effectz-gpu",
+ "effectz-host",
+ "effectz-media",
+ "effectz-ui-egui",
  "eframe",
  "egui",
  "js-sys",

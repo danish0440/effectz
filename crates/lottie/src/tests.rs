@@ -1,15 +1,15 @@
 //! Round-trip tests: build comps feature by feature, export → import, compare property values
 //! and rendered frames; plus easing math and document-level checks.
 
-use effectcraft_color::{BlendMode, Label};
-use effectcraft_keyframe::{Ease, Gradient, Interp, Keyframe, ShapePath, TextDoc, Value};
-use effectcraft_project::build::{self, Ids};
-use effectcraft_project::{
+use effectz_color::{BlendMode, Label};
+use effectz_keyframe::{Ease, Gradient, Interp, Keyframe, ShapePath, TextDoc, Value};
+use effectz_project::build::{self, Ids};
+use effectz_project::{
     AlphaMode, Comp, Expression, Footage, FootageKind, GroupKind, ItemId, ItemKind, Layer, LayerId, LayerSource, Marker, MaskMode, MatteKind, Node, Project,
     PropGroup, Solid, TrackMatte,
 };
-use effectcraft_render::render_frame;
-use effectcraft_time::{FrameRate, Tick};
+use effectz_render::render_frame;
+use effectz_time::{FrameRate, Tick};
 use serde_json::{Value as Json, json};
 
 use crate::{ExportOptions, export_comp, import};
@@ -229,12 +229,12 @@ fn spatial_tangents_and_separated_dimensions() {
         ("positionY", "Y Position", vec![Keyframe::new(s(0.0), Value::Scalar(10.0)).eased(), Keyframe::new(s(2.0), Value::Scalar(110.0))]),
         ("positionX", "X Position", vec![Keyframe::new(s(0.5), Value::Scalar(30.0)), Keyframe::new(s(1.5), Value::Scalar(170.0)).eased()]),
     ] {
-        let mut pr = effectcraft_project::Property::new(next, m, name, Value::Scalar(0.0));
+        let mut pr = effectz_project::Property::new(next, m, name, Value::Scalar(0.0));
         next += 1;
         pr.keys = keys;
         tr.children.insert(2, Node::Prop(pr));
     }
-    let mut pz = effectcraft_project::Property::new(next, "positionZ", "Z Position", Value::Scalar(0.0));
+    let mut pz = effectz_project::Property::new(next, "positionZ", "Z Position", Value::Scalar(0.0));
     pz.three_d_only = true;
     next += 1;
     tr.children.insert(4, Node::Prop(pz));
@@ -520,8 +520,8 @@ fn effects_expressions_and_warnings() {
         let mut ids = Ids(&mut next);
         let fx = l.props.sub_mut("effects").unwrap();
         for id in ["ec.blur.gaussian", "ec.color.tint", "ec.perspective.dropshadow", "ec.control.slider", "ec.distort.twirl"] {
-            if let Some(spec) = effectcraft_effects::find(id) {
-                let mut g = effectcraft_effects::instantiate(spec, &mut ids, spec.name, [80.0, 60.0]);
+            if let Some(spec) = effectz_effects::find(id) {
+                let mut g = effectz_effects::instantiate(spec, &mut ids, spec.name, [80.0, 60.0]);
                 if let Some(b) = g.get_mut("blurriness") {
                     b.keys = vec![Keyframe::new(s(0.0), Value::Scalar(0.0)), Keyframe::new(s(1.0), Value::Scalar(8.0))];
                 }
@@ -686,7 +686,7 @@ fn fixture_precomp_matte_text() {
     assert_eq!(comp.layers[2].parent, Some(comp.layers[3].id));
     let Value::Text(doc) = &comp.layers[2].props.prop("text/sourceText").unwrap().value else { panic!() };
     assert_eq!(doc.text, "Hello\nLottie");
-    assert_eq!(doc.justify, effectcraft_keyframe::Justify::Center);
+    assert_eq!(doc.justify, effectz_keyframe::Justify::Center);
     assert!(not_blank(&q, c, s(0.5)));
 }
 

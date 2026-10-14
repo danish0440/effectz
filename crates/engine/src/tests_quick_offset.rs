@@ -1,9 +1,9 @@
 //! Quick Offset (#1012): `layer.quickOffset` and `keys.quickOffset` stagger layers and each layer's
 //! selected keys in selection order, onto subframes, as one undo step.
 
-use effectcraft_keyframe::Interp;
-use effectcraft_project::{Layer, LayerId};
-use effectcraft_time::Tick;
+use effectz_keyframe::Interp;
+use effectz_project::{Layer, LayerId};
+use effectz_time::Tick;
 use serde_json::{Value, json};
 
 use crate::{KeyRef, Session};

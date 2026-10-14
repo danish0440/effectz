@@ -1,0 +1,25 @@
+[package]
+name = "effectz-cli"
+description = "EffectZ headless CLI: render frames and sequences, run commands, MCP server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "effectz-cli"
+path = "src/main.rs"
+
+[dependencies]
+effectz-engine = { workspace = true }
+effectz-host = { workspace = true }
+effectz-automation = { workspace = true }
+effectz-ui-egui = { workspace = true }
+effectz-render = { workspace = true }
+effectz-gpu = { workspace = true }
+effectz-time = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+cpu-time = "1"

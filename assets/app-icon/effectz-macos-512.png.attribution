@@ -1,0 +1,8 @@
+asset:        effectz-macos-512.png
+title:        EffectZ runtime Dock icon (macOS)
+author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: assets/app-icon/LICENSE.txt
+added:        2026-10-02 by EffectZ contributors (Claude agent, app icon)
+notes:        Rendered from effectz.svg on Apple's 824/1024 icon grid with resvg by packaging/icons.sh; embedded by apps/effectz/src/main.rs.

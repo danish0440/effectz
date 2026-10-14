@@ -1,5 +1,5 @@
-use effectcraft_keyframe::TextDoc;
-use effectcraft_text::{fonts, kurbo, layout_doc};
+use effectz_keyframe::TextDoc;
+use effectz_text::{fonts, kurbo, layout_doc};
 
 #[test]
 fn japanese_vertical_punctuation_uses_alternates_at_the_top_right() {

@@ -1,0 +1,8 @@
+asset:        effectz.ico
+title:        EffectZ Windows app icon
+author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: assets/app-icon/LICENSE.txt
+added:        2026-10-02 by EffectZ contributors (Claude agent, app icon)
+notes:        Rendered from effectz.svg (16-256 px) with resvg and packed by cargo xtask ico (packaging/icons.sh).

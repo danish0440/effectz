@@ -4,10 +4,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
-use effectcraft_project::{AlphaMode, Footage, FootageKind, ItemId};
-use effectcraft_raster::{Image, Px};
-use effectcraft_render::{FloatCurve, FootageSource};
-use effectcraft_time::{FrameRate, TICKS_PER_SECOND, Tick};
+use effectz_project::{AlphaMode, Footage, FootageKind, ItemId};
+use effectz_raster::{Image, Px};
+use effectz_render::{FloatCurve, FootageSource};
+use effectz_time::{FrameRate, TICKS_PER_SECOND, Tick};
 use filmcraft_media::{FrameRequest, SharedSource};
 use image::metadata::Orientation;
 
@@ -187,7 +187,7 @@ struct Inner {
     /// In-memory files registered with `add_bytes` (web builds, tests).
     files: Mutex<HashMap<String, Arc<[u8]>>>,
     /// Parsed 3D models by path (`None`: failed to load; not retried until `forget`).
-    models: Mutex<HashMap<String, Option<Arc<effectcraft_model::Model>>>>,
+    models: Mutex<HashMap<String, Option<Arc<effectz_model::Model>>>>,
     /// Decoded animated GIFs and WebPs by path, loaded by the first caller while the others wait (an
     /// `Err` is not retried until `forget`).
     gifs: Mutex<HashMap<Arc<str>, GifSlot>>,
@@ -213,10 +213,10 @@ struct Inner {
     problems: Mutex<HashMap<Arc<str>, String>>,
 }
 
-/// Decodes footage for the renderer: stills, image sequences and movies (FilmCraft codecs), plus
+/// Decodes footage for the renderer: stills, image sequences and movies (FilmZ codecs), plus
 /// audio. Thread-safe and cheap to clone (clones share decoders and cache).
 ///
-/// - One decoder per movie: FilmCraft's GOP cache keeps it positioned, so sequential frames
+/// - One decoder per movie: FilmZ's GOP cache keeps it positioned, so sequential frames
 ///   decode without re-seeking, and a seek decodes forward from the preceding sync sample.
 /// - Converted frames live in an LRU cache bounded by a byte budget ([`DEFAULT_BUDGET`]).
 /// - Sequential playback reads one frame ahead on a worker thread (native builds), so decoding
@@ -494,7 +494,7 @@ impl MediaPool {
 
     /// [`MediaPool::audio_samples`] straight from the decoder. The source is read at its own
     /// rate and resampled here (linear, by absolute sample position, so a range comes out the
-    /// same however it is split into reads). FilmCraft's MP4 reader, asked for another rate,
+    /// same however it is split into reads). FilmZ's MP4 reader, asked for another rate,
     /// applied the edit list's priming offset twice and ramped the start of every read: AAC
     /// footage not at the mix rate stuttered in previews and exports (#274).
     fn decode_audio(&self, footage: &Footage, start: Tick, frames: usize, rate: u32) -> Vec<f32> {
@@ -542,7 +542,7 @@ impl MediaPool {
             return Ok((*img).clone());
         }
         let (tw, th) = (((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1));
-        Ok(effectcraft_raster::resample(&img, tw, th))
+        Ok(effectz_raster::resample(&img, tw, th))
     }
 }
 
@@ -552,7 +552,7 @@ impl Inner {
     }
 
     /// A 3D model file and its sibling resources (buffers, textures, MTL files), parsed once.
-    fn model(&self, path: &str) -> Option<Arc<effectcraft_model::Model>> {
+    fn model(&self, path: &str) -> Option<Arc<effectz_model::Model>> {
         if let Some(m) = lock(&self.models).get(path) {
             return m.clone();
         }
@@ -562,7 +562,7 @@ impl Inner {
                 let p = dir.join(uri);
                 self.read(&p.to_string_lossy()).ok().map(|b| b.to_vec())
             };
-            effectcraft_model::load(path, &bytes, &resolve).map_err(|e| e.to_string())
+            effectz_model::load(path, &bytes, &resolve).map_err(|e| e.to_string())
         });
         let m = match loaded {
             Ok(m) => Some(Arc::new(m)),
@@ -835,7 +835,7 @@ impl FootageSource for MediaPool {
     fn set_conform_folder(&self, folder: Option<std::path::PathBuf>) {
         MediaPool::set_conform_folder(self, folder);
     }
-    fn model(&self, _item: ItemId, footage: &Footage) -> Option<Arc<effectcraft_model::Model>> {
+    fn model(&self, _item: ItemId, footage: &Footage) -> Option<Arc<effectz_model::Model>> {
         if footage.missing || footage.kind != FootageKind::Model {
             return None;
         }
@@ -877,14 +877,14 @@ impl FootageSource for MediaPool {
     }
 
     fn vector_frame(&self, _item: ItemId, footage: &Footage, scale: f64) -> Option<Arc<Image>> {
-        if footage.missing || !effectcraft_render::is_vector_footage(footage) {
+        if footage.missing || !effectz_render::is_vector_footage(footage) {
             return None;
         }
         let bytes = self.inner.read(&footage.path).ok()?;
         crate::layered::rasterize_vector(&footage.path, &bytes, footage.layer.as_ref(), footage.page, scale).map(Arc::new)
     }
 
-    fn aux(&self, _item: ItemId, footage: &Footage, t: Tick) -> Option<Arc<effectcraft_raster::AuxChannels>> {
+    fn aux(&self, _item: ItemId, footage: &Footage, t: Tick) -> Option<Arc<effectz_raster::AuxChannels>> {
         if footage.missing || !footage.has_video {
             return None;
         }
@@ -905,7 +905,7 @@ impl FootageSource for MediaPool {
 }
 
 /// `frames` stereo sample frames (interleaved) of `src` from sample `s0` at `rate` Hz, which
-/// FilmCraft serves as decoded when it is the source's own rate. Mono is duplicated to both
+/// FilmZ serves as decoded when it is the source's own rate. Mono is duplicated to both
 /// channels, multichannel sources are downmixed ([`crate::downmix`]); silence before the start. An error where decoding fails.
 fn read_stereo(src: &SharedSource, s0: i64, frames: usize, rate: u32) -> std::result::Result<Vec<f32>, String> {
     let mut out = vec![0.0; frames * 2];

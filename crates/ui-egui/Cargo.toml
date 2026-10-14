@@ -1,6 +1,6 @@
 [package]
-name = "effectcraft-ui-egui"
-description = "The EffectCraft egui frontend (swappable): docking panels, composition viewer, timeline, effect controls, control channel"
+name = "effectz-ui-egui"
+description = "The EffectZ egui frontend (swappable): docking panels, composition viewer, timeline, effect controls, control channel"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,16 +11,16 @@ workspace = true
 
 [dependencies]
 craft-ui = { workspace = true }
-effectcraft-time = { workspace = true }
-effectcraft-geom = { workspace = true }
-effectcraft-color = { workspace = true }
-effectcraft-keyframe = { workspace = true }
-effectcraft-project = { workspace = true }
-effectcraft-path = { workspace = true }
-effectcraft-text = { workspace = true }
-effectcraft-render = { workspace = true }
-effectcraft-engine = { workspace = true }
-effectcraft-gpu = { workspace = true }
+effectz-time = { workspace = true }
+effectz-geom = { workspace = true }
+effectz-color = { workspace = true }
+effectz-keyframe = { workspace = true }
+effectz-project = { workspace = true }
+effectz-path = { workspace = true }
+effectz-text = { workspace = true }
+effectz-render = { workspace = true }
+effectz-engine = { workspace = true }
+effectz-gpu = { workspace = true }
 egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
 serde = { workspace = true }
@@ -37,7 +37,7 @@ sys-locale = { workspace = true }
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
 pollster = "0.4"
-effectcraft-host = { workspace = true }
+effectz-host = { workspace = true }
 exr = { workspace = true }
 
 [build-dependencies]

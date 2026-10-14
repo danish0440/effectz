@@ -1,7 +1,7 @@
 //! Effects & Presets: copy the configured folder path through the contents menu.
 
-use effectcraft_engine::Session;
-use effectcraft_ui_egui::{ControlRequest, EffectcraftApp, control, dock::PanelKind};
+use effectz_engine::Session;
+use effectz_ui_egui::{ControlRequest, EffectzApp, control, dock::PanelKind};
 use egui::{Event, Modifiers, OutputCommand, PointerButton, pos2};
 use egui_kittest::Harness;
 use serde_json::json;
@@ -9,12 +9,12 @@ use serde_json::json;
 fn expected_folder() -> String {
     let path = std::env::var("EC_PRESETS_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
-        std::path::Path::new(&home).join("Documents/EffectCraft/Presets").to_str().unwrap().to_string()
+        std::path::Path::new(&home).join("Documents/EffectZ/Presets").to_str().unwrap().to_string()
     });
     if path.is_empty() { path } else { std::path::absolute(path).unwrap().to_str().unwrap().to_string() }
 }
 
-fn click(h: &mut Harness<'_, EffectcraftApp>, id: &str) -> Vec<String> {
+fn click(h: &mut Harness<'_, EffectzApp>, id: &str) -> Vec<String> {
     let e = h.state().auto.find(id).unwrap_or_else(|| panic!("missing {id}"));
     let pos = pos2(e.rect[0] + e.rect[2] / 2.0, e.rect[1] + e.rect[3] / 2.0);
     let mut copied = Vec::new();
@@ -35,7 +35,7 @@ fn click(h: &mut Harness<'_, EffectcraftApp>, id: &str) -> Vec<String> {
 fn presets_menu_copies_the_configured_folder_without_editing_the_project() {
     let expected = expected_folder();
     let mut h = Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_eframe(|_| {
-        let mut app = EffectcraftApp::new(Session::default());
+        let mut app = EffectzApp::new(Session::default());
         app.ui.start_screen = false;
         app.show_panel(PanelKind::EffectsPresets);
         app
@@ -58,7 +58,7 @@ fn presets_menu_copies_the_configured_folder_without_editing_the_project() {
 
 #[test]
 fn presets_folder_control_command_returns_the_path_or_a_configuration_error() {
-    let mut app = EffectcraftApp::new(Session::default());
+    let mut app = EffectzApp::new(Session::default());
     let ctx = egui::Context::default();
     let expected = expected_folder();
     let mut reply = None;

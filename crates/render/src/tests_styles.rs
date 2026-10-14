@@ -1,11 +1,11 @@
 //! Layer Styles pixel tests.
 
-use effectcraft_color::Label;
-use effectcraft_keyframe::{Gradient, Keyframe, ShapePath, Value};
-use effectcraft_project::build::{self, Ids};
-use effectcraft_project::styles::{self as st, GROUP};
-use effectcraft_project::{Comp, ItemId, ItemKind, Layer, LayerSource, MaskMode, Project, Solid};
-use effectcraft_time::{FrameRate, Tick};
+use effectz_color::Label;
+use effectz_keyframe::{Gradient, Keyframe, ShapePath, Value};
+use effectz_project::build::{self, Ids};
+use effectz_project::styles::{self as st, GROUP};
+use effectz_project::{Comp, ItemId, ItemKind, Layer, LayerSource, MaskMode, Project, Solid};
+use effectz_time::{FrameRate, Tick};
 
 use crate::{Image, NoFootage, RenderOpts, Renderer, render_frame};
 

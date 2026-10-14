@@ -4,7 +4,7 @@
 //!   listed same-layer edges, no UI/OS crates below L5).
 //! - `wasm`: `cargo check --target wasm32-unknown-unknown` for every crate in L0–L4, the egui UI
 //!   and the web app.
-//! - `web [--dev] [--serve PORT]`: build the web app (`apps/effectcraft-web`) into
+//! - `web [--dev] [--serve PORT]`: build the web app (`apps/effectz-web`) into
 //!   `<target>/web/dist` with `wasm-bindgen` (docs/web.md); `--serve` serves it on localhost.
 //! - `assets`: every asset file (image, icon, font, LUT, audio, video…) has a complete
 //!   `<file>.attribution` sidecar and an entry in `ATTRIBUTION.md` (AGENTS.md §1).
@@ -21,7 +21,7 @@ use std::process::{Command, ExitCode};
 
 use serde_json::Value;
 
-/// (crate name without the `effectcraft-` prefix, layer). See `docs/architecture.md` §1.
+/// (crate name without the `effectz-` prefix, layer). See `docs/architecture.md` §1.
 const LAYERS: &[(&str, u8)] = &[
     ("time", 0),
     ("geom", 0),
@@ -57,7 +57,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("host", 4),
     ("ui-egui", 5),
     ("automation", 5),
-    ("effectcraft", 6),
+    ("effectz", 6),
     ("cli", 6),
     ("web", 6),
 ];
@@ -82,14 +82,14 @@ const SAME_LAYER: &[(&str, &str)] = &[
     ("host", "engine"),
     ("script", "engine"),
     ("host", "script"),
-    ("cli", "effectcraft"),
+    ("cli", "effectz"),
 ];
 
 /// Crates that must not appear below L5 (UI toolkits, windowing, OS audio/menus).
 const UI_ONLY: &[&str] = &["craft-ui", "egui", "eframe", "egui-wgpu", "winit", "rfd", "cpal", "muda"];
 
 fn short(name: &str) -> &str {
-    name.strip_prefix("effectcraft-").unwrap_or(name)
+    name.strip_prefix("effectz-").unwrap_or(name)
 }
 
 fn layer_of(name: &str) -> Option<u8> {
@@ -135,7 +135,7 @@ fn layers() -> Result<(), String> {
             if l < 5 && UI_ONLY.contains(&d.as_str()) {
                 errors.push(format!("{name} (L{l}) depends on UI/OS crate `{d}`"));
             }
-            if !d.starts_with("effectcraft-") {
+            if !d.starts_with("effectz-") {
                 continue;
             }
             let Some(dl) = layer_of(d) else { continue };
@@ -229,7 +229,7 @@ fn run(cmd: &mut Command) -> Result<(), String> {
 }
 
 /// Crates above L4 that must also build for the web.
-const WEB_CRATES: &[&str] = &["effectcraft-ui-egui", "effectcraft-web"];
+const WEB_CRATES: &[&str] = &["effectz-ui-egui", "effectz-web"];
 
 fn wasm() -> Result<(), String> {
     let md = metadata()?;
@@ -263,7 +263,7 @@ fn web(args: &[String]) -> Result<(), String> {
     let serve = args.iter().position(|a| a == "--serve").map(|i| args.get(i + 1).and_then(|p| p.parse::<u16>().ok()).unwrap_or(8765));
     let profile = if dev { "dev" } else { "release" };
     let mut build = Command::new(env!("CARGO"));
-    build.args(["build", "--target", "wasm32-unknown-unknown", "-p", "effectcraft-web", "--profile", profile]);
+    build.args(["build", "--target", "wasm32-unknown-unknown", "-p", "effectz-web", "--profile", profile]);
     run(&mut build)?;
     let out = Command::new("wasm-bindgen")
         .arg("--version")
@@ -277,15 +277,15 @@ fn web(args: &[String]) -> Result<(), String> {
         ));
     }
     let dir = if dev { "debug" } else { "release" };
-    let wasm = target_dir().join("wasm32-unknown-unknown").join(dir).join("effectcraft_web.wasm");
+    let wasm = target_dir().join("wasm32-unknown-unknown").join(dir).join("effectz_web.wasm");
     let dist = target_dir().join("web").join("dist");
     let _ = std::fs::remove_dir_all(&dist);
     std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
     run(Command::new("wasm-bindgen").args(["--target", "web", "--no-typescript", "--out-dir"]).arg(&dist).arg(&wasm))?;
-    let bg = dist.join("effectcraft_web_bg.wasm");
+    let bg = dist.join("effectz_web_bg.wasm");
     if !dev && Command::new("wasm-opt").arg("--version").output().is_ok() {
         // optional: smaller and faster (binaryen); skipped when not installed
-        let opt = dist.join("effectcraft_web_opt.wasm");
+        let opt = dist.join("effectz_web_opt.wasm");
         run(Command::new("wasm-opt")
             .args(["-O2", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext", "--enable-mutable-globals"])
             .arg(&bg)
@@ -293,7 +293,7 @@ fn web(args: &[String]) -> Result<(), String> {
             .arg(&opt))?;
         std::fs::rename(&opt, &bg).map_err(|e| e.to_string())?;
     }
-    let web = std::path::Path::new("apps/effectcraft-web/web");
+    let web = std::path::Path::new("apps/effectz-web/web");
     for e in std::fs::read_dir(web).map_err(|e| e.to_string())?.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if !name.ends_with(".attribution") {
@@ -302,7 +302,7 @@ fn web(args: &[String]) -> Result<(), String> {
     }
     // PWA icons: the app icon (assets/app-icon, attributed there).
     for n in [256, 512] {
-        let src = format!("assets/app-icon/hicolor/{n}x{n}/apps/ai.storyteller.effectcraft.png");
+        let src = format!("assets/app-icon/hicolor/{n}x{n}/apps/com.pintaz.effectz.png");
         std::fs::copy(&src, dist.join(format!("icon-{n}.png"))).map_err(|e| format!("{src}: {e}"))?;
     }
     service_worker(&dist)?;

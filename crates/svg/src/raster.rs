@@ -1,8 +1,8 @@
 //! Rasterisation of a parsed SVG into a premultiplied `f32` image (anti-aliased coverage from
-//! `effectcraft-path`; group opacity composites the group as a whole, as SVG specifies).
+//! `effectz-path`; group opacity composites the group as a whole, as SVG specifies).
 
-use effectcraft_geom::Mat3;
-use effectcraft_raster::{Image, Mask};
+use effectz_geom::Mat3;
+use effectz_raster::{Image, Mask};
 use kurbo::{Affine, Point, Shape as _};
 use rayon::prelude::*;
 
@@ -130,10 +130,10 @@ fn clip_coverage(g: &Group, m: Affine, w: u32, h: u32) -> Vec<f32> {
     let mut out = vec![1.0f32; w as usize * h as usize];
     for (path, rule) in &g.clip {
         let rule = match rule {
-            FillRule::NonZero => effectcraft_path::FillRule::NonZero,
-            FillRule::EvenOdd => effectcraft_path::FillRule::EvenOdd,
+            FillRule::NonZero => effectz_path::FillRule::NonZero,
+            FillRule::EvenOdd => effectz_path::FillRule::EvenOdd,
         };
-        let cov = effectcraft_path::fill_coverage(std::slice::from_ref(path), &mat3(m), w, h, rule);
+        let cov = effectz_path::fill_coverage(std::slice::from_ref(path), &mat3(m), w, h, rule);
         out.par_iter_mut().zip(cov.data.par_iter()).for_each(|(o, c)| *o *= c);
     }
     out
@@ -327,7 +327,7 @@ fn draw_image(im: &crate::Image, m: Affine, opacity: f64, dst: &mut Image) {
         return;
     }
     let quad = kurbo::Rect::new(0.0, 0.0, iw as f64, ih as f64).to_path(0.01);
-    let cov = effectcraft_path::fill_coverage(std::slice::from_ref(&quad), &mat3(full), dst.width, dst.height, effectcraft_path::FillRule::NonZero);
+    let cov = effectz_path::fill_coverage(std::slice::from_ref(&quad), &mat3(full), dst.width, dst.height, effectz_path::FillRule::NonZero);
     let w = dst.width as usize;
     if w == 0 {
         return;
@@ -398,31 +398,31 @@ fn draw_shape(s: &Shape, m: Affine, opacity: f64, dst: &mut Image) {
     let (w, h) = (dst.width, dst.height);
     if let Some(fill) = &s.fill {
         let rule = match s.fill_rule {
-            FillRule::NonZero => effectcraft_path::FillRule::NonZero,
-            FillRule::EvenOdd => effectcraft_path::FillRule::EvenOdd,
+            FillRule::NonZero => effectz_path::FillRule::NonZero,
+            FillRule::EvenOdd => effectz_path::FillRule::EvenOdd,
         };
-        let cov = effectcraft_path::fill_coverage(std::slice::from_ref(&path), &mat3(m), w, h, rule);
+        let cov = effectz_path::fill_coverage(std::slice::from_ref(&path), &mat3(m), w, h, rule);
         paint(dst, &cov, fill, (opacity * s.fill_opacity) as f32, m, bbox);
     }
     if let Some(st) = &s.stroke {
-        let style = effectcraft_path::StrokeStyle {
+        let style = effectz_path::StrokeStyle {
             width: st.width,
             cap: match st.cap {
-                crate::Cap::Butt => effectcraft_path::Cap::Butt,
-                crate::Cap::Round => effectcraft_path::Cap::Round,
-                crate::Cap::Square => effectcraft_path::Cap::Square,
+                crate::Cap::Butt => effectz_path::Cap::Butt,
+                crate::Cap::Round => effectz_path::Cap::Round,
+                crate::Cap::Square => effectz_path::Cap::Square,
             },
             join: match st.join {
-                crate::Join::Miter => effectcraft_path::Join::Miter,
-                crate::Join::Round => effectcraft_path::Join::Round,
-                crate::Join::Bevel => effectcraft_path::Join::Bevel,
+                crate::Join::Miter => effectz_path::Join::Miter,
+                crate::Join::Round => effectz_path::Join::Round,
+                crate::Join::Bevel => effectz_path::Join::Bevel,
             },
             miter: st.miter,
             dash: st.dash.clone(),
             taper: None,
             wave: None,
         };
-        let cov = effectcraft_path::stroke_coverage(std::slice::from_ref(&path), &style, &mat3(m), w, h);
+        let cov = effectz_path::stroke_coverage(std::slice::from_ref(&path), &style, &mat3(m), w, h);
         paint(dst, &cov, &st.paint, (opacity * st.opacity) as f32, m, bbox);
     }
 }
