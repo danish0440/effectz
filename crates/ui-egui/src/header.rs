@@ -186,7 +186,7 @@ pub fn show(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     let mut rx = rect.max.x - 10.0;
     // The pill fits its label (icon, gap, text) with even padding: it was a fixed 104 px with the
     // text at its left, which left a wide gap on the right (#581).
-    let label = p.layout_no_wrap(tr("Discord").to_string(), Tokens::semibold(12.0), Color32::WHITE);
+    let label = p.layout_no_wrap(tr("Help").to_string(), Tokens::semibold(12.0), Color32::WHITE);
     let discord = Rect::from_min_max(pos2(rx - (10.0 + 14.0 + 6.0 + label.size().x + 12.0), cy - 13.0), pos2(rx, cy + 13.0));
     let dresp = ui.interact(discord, egui::Id::new("hdr-discord"), Sense::click());
     let dc = Color32::from_rgb(0x58, 0x65, 0xf2);
