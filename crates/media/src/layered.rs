@@ -28,7 +28,7 @@ pub fn vector_doc(
     Some(
         effectz_pdf::parse_page(bytes, page as usize)
             .map(|d| match layer {
-                Some(l) => effectz_pdf::layer_doc(&d, l.index as usize),
+                Some(l) => effectz_pdf::layer_doc_with_sizes(&d, l.index as usize, l.layer_size).0,
                 None => d,
             })
             .map_err(|e| format!("{path}: {e}")),

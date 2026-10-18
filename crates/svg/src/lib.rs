@@ -6,6 +6,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod bounds;
 mod color;
 mod pathdata;
 mod raster;
@@ -106,6 +107,28 @@ pub struct Stroke {
     pub miter: f64,
     /// Dash array and offset.
     pub dash: Option<(Vec<f64>, f64)>,
+}
+
+impl Stroke {
+    fn style(&self) -> effectz_path::StrokeStyle {
+        effectz_path::StrokeStyle {
+            width: self.width,
+            cap: match self.cap {
+                Cap::Butt => effectz_path::Cap::Butt,
+                Cap::Round => effectz_path::Cap::Round,
+                Cap::Square => effectz_path::Cap::Square,
+            },
+            join: match self.join {
+                Join::Miter => effectz_path::Join::Miter,
+                Join::Round => effectz_path::Join::Round,
+                Join::Bevel => effectz_path::Join::Bevel,
+            },
+            miter: self.miter,
+            dash: self.dash.clone(),
+            taper: None,
+            wave: None,
+        }
+    }
 }
 
 /// Shape geometry in its user space (basic shapes are kept so they can become parametric shape

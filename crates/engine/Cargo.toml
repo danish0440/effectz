@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+craft-docpath = { workspace = true }
 effectz-time = { workspace = true }
 effectz-geom = { workspace = true }
 effectz-color = { workspace = true }
