@@ -1,0 +1,22 @@
+apps/effectz-web/web/favicon.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz-1024.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz-macos-512.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz-small.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.icns.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.ico.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.svg.attribution: notes:        The owner's ArtCraft drawing of an engraved unicorn bust, vectorised at 2048 px with craftrules assets/logo-options/_tools/vectorize_tile.py (potr
+assets/app-icon/hicolor/128x128/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/16x16/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/24x24/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/256x256/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/32x32/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/48x48/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/512x512/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/64x64/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/scalable/apps/com.pintaz.effectz.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+crates/engine/src/links.rs: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
+crates/ui-egui/src/header.rs: /// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
+crates/ui-egui/src/header.rs: /// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
+crates/ui-egui/src/panels/dialogs.rs: // PINTAZ-ABOUT: required credit (Apache-2.0 change notice; ArtCraft brand licence)
+crates/ui-egui/src/panels/dialogs.rs: ui.label("Based on EffectCraft by Storytold (ArtCraft), Apache-2.0. Changes by PINTAZ TECHNOLOGIES.");
