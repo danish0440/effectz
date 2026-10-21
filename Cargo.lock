@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "effectz"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cpal",
  "effectz-engine",
@@ -1188,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-automation"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-engine",
  "effectz-host",
@@ -1200,14 +1200,14 @@ dependencies = [
 
 [[package]]
 name = "effectz-av1enc"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "filmcraft-av1",
 ]
 
 [[package]]
 name = "effectz-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cpu-time",
  "effectz-automation",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-color"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "proptest",
  "serde",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-effects"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-geom",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-engine"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "craft-docpath",
  "effectz-color",
@@ -1282,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-export"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-av1enc",
  "effectz-color",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-expr"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "boa_engine",
  "effectz-color",
@@ -1329,7 +1329,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-geom"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "proptest",
  "serde",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-gpu"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "bytemuck",
  "effectz-color",
@@ -1359,14 +1359,14 @@ dependencies = [
 
 [[package]]
 name = "effectz-hevcenc"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "filmcraft-hevc",
 ]
 
 [[package]]
 name = "effectz-host"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-engine",
  "effectz-export",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-interchange"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-keyframe",
@@ -1410,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-keyframe"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-geom",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-lottie"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "craft-docpath",
  "effectz-color",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-media"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "craft-docpath",
  "effectz-model",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-model"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-geom",
  "image",
@@ -1481,14 +1481,14 @@ dependencies = [
 
 [[package]]
 name = "effectz-opusenc"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "filmcraft-opus",
 ]
 
 [[package]]
 name = "effectz-path"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-geom",
  "effectz-keyframe",
@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-pdf"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "craft-pdf",
  "effectz-raster",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-plugin"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-effects",
  "effectz-keyframe",
@@ -1528,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-project"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-geom",
@@ -1541,14 +1541,14 @@ dependencies = [
 
 [[package]]
 name = "effectz-psd"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "miniz_oxide 0.8.9",
 ]
 
 [[package]]
 name = "effectz-raster"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-geom",
@@ -1557,7 +1557,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-render"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-color",
  "effectz-effects",
@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-script"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "boa_engine",
  "effectz-engine",
@@ -1596,7 +1596,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-segment"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "miniz_oxide 0.8.9",
  "ndarray",
@@ -1605,7 +1605,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-svg"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-geom",
  "effectz-path",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-text"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-keyframe",
  "harfrust",
@@ -1629,7 +1629,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-time"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "proptest",
  "serde",
@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-track"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-raster",
  "effectz-segment",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "effectz-ui-egui"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "craft-ui",
  "effectz-color",
@@ -1681,11 +1681,11 @@ dependencies = [
 
 [[package]]
 name = "effectz-vp9enc"
-version = "0.12.0"
+version = "0.13.0"
 
 [[package]]
 name = "effectz-web"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "effectz-engine",
  "effectz-export",
@@ -6625,7 +6625,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "serde_json",
 ]
