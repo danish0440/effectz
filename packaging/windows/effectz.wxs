@@ -73,6 +73,9 @@
 
   <Fragment>
     <ComponentGroup Id="EffectzFiles" Directory="INSTALLFOLDER">
+      <Component Id="EffectzNotice">
+        <File Id="EffectzNoticeFile" Source="$(var.BinDir)\NOTICE" KeyPath="yes" />
+      </Component>
       <Component Id="EffectzApp" Guid="FEFD50EF-BE4B-501F-BA99-8EA0211FFD94">
         <File Id="EffectzExe" Source="$(var.BinDir)\effectz.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="EffectZ"

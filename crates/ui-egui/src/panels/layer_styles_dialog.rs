@@ -5,6 +5,7 @@
 //! edits made in the dialog back, OK keeps them (one undo step per control drag).
 
 use crate::i18n::tr;
+use effectz_engine::commands::text_edit::active_editor_snapshot;
 use effectz_engine::keyframe::Value as KV;
 use effectz_engine::project::styles::{BLENDING, STYLES};
 use effectz_engine::project::{Layer, LayerId, ParamUi, Property};
@@ -60,7 +61,7 @@ pub fn open(app: &mut EffectzApp, params: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// Menu routing: choosing one of the Layer ▸ Layer Styles ▸ <style> items (no parameters) adds
+/// Menu routing: choosing one of the Layer ▸ Layer Styles ▸ `<style>` items (no parameters) adds
 /// the style as usual and opens the dialog on it.
 pub fn route(app: &mut EffectzApp, id: &str, params: &Value) -> Result<bool, String> {
     let Some(style) = id.strip_prefix("layer.style.").filter(|s| STYLES.iter().any(|x| x.0 == *s)) else { return Ok(false) };
@@ -258,13 +259,85 @@ pub fn finish(app: &mut EffectzApp, ok: bool) {
         && !ok
     {
         let changed = !std::sync::Arc::ptr_eq(&app.session.project, &checkpoint.project);
-        app.session.project = checkpoint.project;
-        app.session.history = checkpoint.history;
-        app.session.sanitize_state();
         if changed {
+            // Snapshot only when Cancel has something to restore: opening and cancelling without
+            // edits must not copy the whole TextDoc.
+            let edited = active_editor_snapshot(&app.session);
+            app.session.project = checkpoint.project;
+            app.session.history = checkpoint.history;
+            app.session.sanitize_after_replacement(edited.as_ref());
             app.session.bump();
+        } else {
+            // No edit was committed, so nothing can have become invalid. In particular, do not
+            // call sanitize_state here: its text-edit cleanup clones the whole TextDoc.
+            app.session.history = checkpoint.history;
         }
     }
     app.session.history.merge_key = None;
     app.dialog = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use effectz_engine::Session;
+    use effectz_engine::commands::text_edit::layer_doc;
+    use effectz_engine::project::LayerId;
+    use effectz_engine::project::styles::BLENDING;
+    use serde_json::json;
+
+    fn editing_app() -> (EffectzApp, u64) {
+        let mut s = Session::default();
+        s.execute("comp.new", json!({"name": "Styles", "width": 320, "height": 180, "duration": 1})).unwrap();
+        let lid = s.execute("layer.newText", json!({"text": "abcdef"})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("text.edit", json!({"layer": lid, "caret": 3})).unwrap();
+        (EffectzApp::new(s), lid)
+    }
+
+    fn editor_state(app: &EffectzApp) -> Option<(LayerId, u64, usize, usize)> {
+        app.session.state.text_edit.as_ref().map(|e| (e.layer, e.session, e.anchor, e.caret))
+    }
+
+    #[test]
+    fn cancel_keeps_an_open_text_editor_when_the_dialog_did_not_change_its_text() {
+        let (mut app, lid) = editing_app();
+        open(&mut app, &json!({"layer": lid, "style": BLENDING})).unwrap();
+        // A live preview edit changes the project but not the edited Source Text.
+        app.session.execute("prop.set", json!({"layer": lid, "path": "transform/opacity", "value": 40})).unwrap();
+        let before = editor_state(&app);
+        assert!(before.is_some());
+
+        finish(&mut app, false);
+        assert_eq!(editor_state(&app), before, "Cancel keeps an editor whose document it did not replace");
+    }
+
+    #[test]
+    fn cancel_without_a_dialog_edit_keeps_the_open_editor_and_its_document_untouched() {
+        let (mut app, lid) = editing_app();
+        open(&mut app, &json!({"layer": lid, "style": BLENDING})).unwrap();
+        let before = editor_state(&app);
+        let project = app.session.project.clone();
+        let undo = app.session.history.undo.len();
+        assert!(before.is_some());
+
+        finish(&mut app, false);
+        assert!(std::sync::Arc::ptr_eq(&app.session.project, &project), "a no-op Cancel restores the same project");
+        assert_eq!(app.session.history.undo.len(), undo, "and the same undo history");
+        assert_eq!(editor_state(&app), before, "and leaves the open editor untouched");
+    }
+
+    #[test]
+    fn cancel_replaces_an_open_text_editor_when_the_preview_changed_its_text() {
+        let (mut app, lid) = editing_app();
+        open(&mut app, &json!({"layer": lid, "style": BLENDING})).unwrap();
+        app.session.execute("layer.setText", json!({"layer": lid, "text": "ab"})).unwrap();
+        let preview = editor_state(&app).expect("still editing");
+        assert_eq!(layer_doc(&app.session, LayerId(lid)).unwrap().text, "ab");
+
+        finish(&mut app, false);
+        let restored = editor_state(&app).expect("the editor survives the rollback");
+        assert_eq!(layer_doc(&app.session, LayerId(lid)).unwrap().text, "abcdef", "Cancel restores the pre-dialog text");
+        assert_ne!(restored.1, preview.1, "the restored editor starts a new epoch");
+        assert_eq!((restored.2, restored.3), (2, 2), "the caret stays in the restored document");
+    }
 }

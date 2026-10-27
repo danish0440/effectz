@@ -15,7 +15,7 @@ assets/app-icon/hicolor/48x48/apps/com.pintaz.effectz.png.attribution: author:  
 assets/app-icon/hicolor/512x512/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/64x64/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/scalable/apps/com.pintaz.effectz.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-crates/engine/src/links.rs: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
+crates/engine/src/home/links.rs: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
 crates/ui-egui/src/header.rs: /// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
 crates/ui-egui/src/header.rs: /// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
 crates/ui-egui/src/panels/dialogs.rs: // PINTAZ-ABOUT: required credit (Apache-2.0 change notice; ArtCraft brand licence)
