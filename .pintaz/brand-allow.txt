@@ -15,8 +15,22 @@ assets/app-icon/hicolor/48x48/apps/com.pintaz.effectz.png.attribution: author:  
 assets/app-icon/hicolor/512x512/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/64x64/apps/com.pintaz.effectz.png.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/scalable/apps/com.pintaz.effectz.svg.attribution: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-crates/engine/src/links.rs: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
+crates/engine/src/home/links.rs: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
 crates/ui-egui/src/header.rs: /// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
 crates/ui-egui/src/header.rs: /// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
 crates/ui-egui/src/panels/dialogs.rs: // PINTAZ-ABOUT: required credit (Apache-2.0 change notice; ArtCraft brand licence)
 crates/ui-egui/src/panels/dialogs.rs: ui.label("Based on EffectCraft by Storytold (ArtCraft), Apache-2.0. Changes by PINTAZ TECHNOLOGIES.");
+packaging/windows/check-install-policy.ps1: $directories['CraftSuiteFolder'][1] -ne 'ArtCraft') { throw 'Expected the app under the ArtCraft suite folder.' }
+packaging/windows/check-install-policy.ps1: $machineFolder = (Join-Path $machineRoot "ArtCraft\$($policy.name)") + '\'
+packaging/windows/check-install-policy.ps1: $userDefault = (Join-Path $env:LOCALAPPDATA "Programs\ArtCraft\$($policy.name)") + '\'
+packaging/windows/check-install-policy.ps1: $wanted = if ($scope -eq '1') { $machineFolder } else { (Join-Path $env:LOCALAPPDATA "Programs\ArtCraft\$($policy.name)") + '\' }
+packaging/windows/check-install-policy.ps1: if ($dirs['INSTALLFOLDER'][0] -ne 'CraftSuiteFolder' -or $dirs['CraftSuiteFolder'][1] -ne 'ArtCraft' -or
+packaging/windows/check-install-policy.ps1: throw 'Launcher new-install folder must be under the per-user ArtCraft suite root.'
+packaging/windows/install-policy.wxi: <Control Id="Info" Type="Text" X="20" Y="50" Width="330" Height="30" Text="{\CraftScopeText}An update keeps the existing folder. New copies use the ArtCraft fol
+packaging/windows/install-policy.wxi: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder" Value="[%ProgramFiles(x86)]\ArtCraft\EffectZ\" After="CraftRestoreUserFolder" Sequence="ui" C
+packaging/windows/install-policy.wxi: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder" Value="[%ProgramW6432]\ArtCraft\EffectZ\" After="CraftRestoreUserFolder" Sequence="ui" Condit
+packaging/windows/install-policy.wxi: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder32" Value="[%ProgramFiles]\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder" Sequence="ui" C
+packaging/windows/install-policy.wxi: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultUserFolder" Value="[LocalAppDataFolder]Programs\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder" Sequenc
+packaging/windows/install-policy.wxi: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultUserFolder" Value="[LocalAppDataFolder]Programs\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder32" Seque
+packaging/windows/test-msi.ps1: $Default = Join-Path $env:ProgramFiles 'ArtCraft\EffectZ'
+packaging/windows/test-msi.ps1: 6. installs 0.0.3 with no folder and DESKTOPSHORTCUT=0: it must land in Program Files\ArtCraft\EffectZ (ALLUSERS=1) with no
