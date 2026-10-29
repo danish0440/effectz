@@ -55,6 +55,7 @@ modules:
     build-commands:
       - cargo --offline build --release --locked -p effectz -p effectz-cli
       - install -Dm755 target/release/effectz /app/bin/effectz
+      - install -Dm644 NOTICE /app/share/doc/effectz/NOTICE
       - install -Dm755 target/release/effectz-cli /app/bin/effectz-cli
       - install -Dm644 packaging/linux/com.pintaz.effectz.desktop /app/share/applications/com.pintaz.effectz.desktop
       - install -Dm644 packaging/linux/com.pintaz.effectz.mime.xml /app/share/mime/packages/com.pintaz.effectz.xml

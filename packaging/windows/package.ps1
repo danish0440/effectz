@@ -90,6 +90,9 @@ Copy-Item (Join-Path $Bin 'effectz.exe'), (Join-Path $Bin 'effectz-cli.exe') $St
 
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'effectz.exe') (Join-Path $Stage 'effectz-cli.exe')
 
+# Required embedded-font notices ship independently of optional font inputs.
+Copy-Item -LiteralPath (Join-Path $Root 'NOTICE') -Destination $Stage
+
 # ---- MSI ---------------------------------------------------------------------------------------
 $Msi = Join-Path $Dist "effectz-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
@@ -97,6 +100,8 @@ Invoke-Native 'wix build' {
     -d "Version=$MsiVersion" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\effectz.ico')" `
     -o $Msi
 }
+# Check the compiled scope, path and registration contract before signing.
+& (Join-Path $PSScriptRoot 'check-install-policy.ps1') -MsiPath $Msi
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
