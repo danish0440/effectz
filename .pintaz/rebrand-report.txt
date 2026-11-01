@@ -1,26 +1,47 @@
 rebrand effectcraft -> EffectZ
-about credit inserted in: ['crates/ui-egui/src/panels/dialogs.rs (fallback, after line 337)']
+about credit inserted in: ['crates/ui-egui/src/panels/dialogs.rs (fallback, after line 396)']
 launcher patches: []
-lines still naming ArtCraft/getartcraft/discord (non-doc): 22
-assets/app-icon/effectz.svg.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/effectz.svg.attribution:8: notes:        The owner's ArtCraft drawing of an engraved unicorn bust, vectorised at 2048 px with craftrules assets/logo-options/_tools/vectorize_tile.py (potr
+lines still naming ArtCraft/getartcraft/discord (non-doc): 43
+crates/ui-egui/src/header.rs:904: /// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
+crates/ui-egui/src/header.rs:908: /// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
+crates/ui-egui/src/panels/dialogs.rs:397: // PINTAZ-ABOUT: required credit (Apache-2.0 change notice; ArtCraft brand licence)
+crates/ui-egui/src/panels/dialogs.rs:399: ui.label("Based on EffectCraft by Storytold (ArtCraft), Apache-2.0. Changes by PINTAZ TECHNOLOGIES.");
+crates/ui-egui/src/i18n/ui.rs:1280: ("EffectZ on GitHub", "getartcraft.com の EffectZ"),
+crates/ui-egui/src/i18n/ui.rs:2401: ("EffectZ on GitHub", "getartcraft.com 上的 EffectZ"),
+crates/ui-egui/src/i18n/ui.rs:3552: ("EffectZ on GitHub", "EffectZ på getartcraft.com"),
+crates/ui-egui/src/i18n/ui.rs:4621: ("EffectZ on GitHub", "getartcraft.com 上的 EffectZ"),
+crates/ui-egui/src/i18n/ui.rs:10018: ("EffectZ on GitHub", "EffectZ sur getartcraft.com"),
+crates/engine/src/home/links.rs:12: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
 assets/app-icon/effectz-1024.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/effectz-macos-512.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/effectz.icns.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/effectz-small.svg.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.svg.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz.svg.attribution:8: notes:        The owner's ArtCraft drawing of an engraved unicorn bust, vectorised at 2048 px (potrace; three colours). Canonical artwork; the other icon files 
+assets/app-icon/effectz.icns.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/effectz.ico.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/effectz-macos-512.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/512x512/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/16x16/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/24x24/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/256x256/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/48x48/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/scalable/apps/com.pintaz.effectz.svg.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/hicolor/32x32/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/hicolor/512x512/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/hicolor/64x64/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/hicolor/24x24/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-assets/app-icon/hicolor/16x16/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 assets/app-icon/hicolor/128x128/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/32x32/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+assets/app-icon/hicolor/64x64/apps/com.pintaz.effectz.png.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
 apps/effectz-web/web/favicon.svg.attribution:3: author:       EffectZ contributors (drawing by the project owner in ArtCraft)
-crates/engine/src/links.rs:12: /// Sibling apps of the ArtCraft family: (name, what it is, GitHub repo, app page).
-crates/ui-egui/src/header.rs:657: /// The ArtCraft mark as supplied in `docs/brand` (the README's and getartcraft.com's logo; used
-crates/ui-egui/src/header.rs:661: /// The ArtCraft mark in `r` (decoded once into a mipmapped texture, so it stays crisp from the
-crates/ui-egui/src/panels/dialogs.rs:338: // PINTAZ-ABOUT: required credit (Apache-2.0 change notice; ArtCraft brand licence)
-crates/ui-egui/src/panels/dialogs.rs:340: ui.label("Based on EffectCraft by Storytold (ArtCraft), Apache-2.0. Changes by PINTAZ TECHNOLOGIES.");
+packaging/windows/install-policy.wxi:34: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder" Value="[%ProgramFiles(x86)]\ArtCraft\EffectZ\" After="CraftRestoreUserFolder" Sequence="ui" C
+packaging/windows/install-policy.wxi:35: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder32" Value="[%ProgramFiles]\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder" Sequence="ui" C
+packaging/windows/install-policy.wxi:36: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultUserFolder" Value="[LocalAppDataFolder]Programs\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder32" Seque
+packaging/windows/install-policy.wxi:38: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultMachineFolder" Value="[%ProgramW6432]\ArtCraft\EffectZ\" After="CraftRestoreUserFolder" Sequence="ui" Condit
+packaging/windows/install-policy.wxi:39: <SetProperty Id="INSTALLFOLDER" Action="CraftDefaultUserFolder" Value="[LocalAppDataFolder]Programs\ArtCraft\EffectZ\" After="CraftDefaultMachineFolder" Sequenc
+packaging/windows/install-policy.wxi:49: <Control Id="Info" Type="Text" X="20" Y="50" Width="330" Height="30" Text="{\CraftScopeText}An update keeps the existing folder. New copies use the ArtCraft fol
+packaging/windows/check-install-policy.ps1:58: if ($dirs['INSTALLFOLDER'][0] -ne 'CraftSuiteFolder' -or $dirs['CraftSuiteFolder'][1] -ne 'ArtCraft' -or
+packaging/windows/check-install-policy.ps1:60: throw 'Launcher new-install folder must be under the per-user ArtCraft suite root.'
+packaging/windows/check-install-policy.ps1:91: $directories['CraftSuiteFolder'][1] -ne 'ArtCraft') { throw 'Expected the app under the ArtCraft suite folder.' }
+packaging/windows/check-install-policy.ps1:165: $machineFolder = (Join-Path $machineRoot "ArtCraft\$($policy.name)") + '\'
+packaging/windows/check-install-policy.ps1:175: $wanted = if ($scope -eq '1') { $machineFolder } else { (Join-Path $env:LOCALAPPDATA "Programs\ArtCraft\$($policy.name)") + '\' }
+packaging/windows/check-install-policy.ps1:182: $userDefault = (Join-Path $env:LOCALAPPDATA "Programs\ArtCraft\$($policy.name)") + '\'
+packaging/windows/test-msi.ps1:14: 6. installs 0.0.3 with no folder and DESKTOPSHORTCUT=0: it must land in Program Files\ArtCraft\EffectZ (ALLUSERS=1) with no
+packaging/windows/test-msi.ps1:98: $Default = Join-Path $env:ProgramFiles 'ArtCraft\EffectZ'
+packaging/linux/flatpak/com.pintaz.effectz.bundle.yml:20: - --filesystem=xdg-data/ArtCraft/versions:ro
+packaging/linux/flatpak/com.pintaz.effectz.yml:23: - --filesystem=xdg-data/ArtCraft/versions:ro
