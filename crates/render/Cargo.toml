@@ -19,7 +19,7 @@ effectz-raster = { workspace = true }
 effectz-path = { workspace = true }
 effectz-text = { workspace = true }
 effectz-effects = { workspace = true }
-lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode", "checked-decode"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "safe-encode", "safe-decode", "checked-decode"] }
 effectz-model = { workspace = true }
 kurbo = { workspace = true }
 rayon = { workspace = true }
