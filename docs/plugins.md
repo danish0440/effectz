@@ -12,12 +12,13 @@ Guide):
 | After Effects | EffectZ | |
 |---|---|---|
 | Effect plug-ins (C/C++ SDK, `.aex` / `.plugin`) | [Effect plug-ins](#effect-plug-ins): WebAssembly modules (plug-in API v1) or Rust; the `Plug-ins` folder next to the settings loads at start-up | Different ABI: After Effects SDK plug-ins can't run (G8) |
-| Scripts folder: its scripts are listed in File ▸ Scripts | `Scripts/` in the settings folder (File ▸ Scripts ▸ Install Script File… copies a script there), listed in File ▸ Scripts with the bundled samples | Same |
+| Scripts folder: its scripts are listed in File ▸ Scripts | `Scripts/` in the settings folder (File ▸ Scripts ▸ Install Script File… copies a script there), listed in File ▸ Scripts with the bundled samples; a subfolder (one level) is a submenu named after it | Same |
 | File ▸ Scripts ▸ Run Script File… (`.jsx`, `.jsxbin`) | `.jsx` / `.js` | Gap: `.jsxbin` (an undocumented binary encoding) |
+| File ▸ Scripts ▸ Recent Script Files: the 10 most recently run scripts; Cmd+Option+Shift+D (Ctrl+Alt+Shift+D on Windows) reruns one | File ▸ Scripts ▸ Recent Script Files lists the 10 scripts run last (script files and File ▸ Scripts entries, newest first, kept in the settings); Cmd+Alt+Shift+D runs the most recent one again (`file.runScript {"recent": 0}`, a key that can be changed in Edit ▸ Keyboard Shortcuts) | Same |
 | ExtendScript preprocessor directives (`#include`, `#target`, `#targetengine`) | `#include` / `//@include` / `#includepath` inline files relative to the script (once each, depth-limited, file gate applies); `#target`, `#targetengine`, `#strict` are ignored | Same |
-| `Scripts/Startup` and `Scripts/Shutdown`: run in alphabetical order when the app starts and quits | Not run | Gap |
-| `Scripts/ScriptUI Panels`: listed at the bottom of the Window menu, dockable like the app's own panels, `this` is the panel | `Scripts/ScriptUI Panels/` in the settings folder (File ▸ Scripts ▸ Install ScriptUI Panel… copies one there), listed at the bottom of the Window menu, docked like any panel, `this` is the panel; the panels open when the app quits open again at the next launch | Same. Where a panel was docked isn't kept: workspace layouts aren't saved between launches |
-| Keyboard shortcuts for scripts (the Keyboard Shortcuts editor lists the scripts of the Scripts folder) | Shortcuts bind to commands and menu entries; the File ▸ Scripts and Window menu entries of scripts aren't offered | Gap |
+| `Scripts/Startup` and `Scripts/Shutdown`: run in alphabetical order when the app starts and quits | `Scripts/Startup/` and `Scripts/Shutdown/` in the settings folder, in alphabetical order (case ignored): the Startup scripts run at launch before a project opens, and the Shutdown scripts run as the desktop app quits, after the project is closed. A Startup script that fails is reported in a toast and in the log, a Shutdown script that fails is reported in the log, and the next script still runs | Partial: each script runs in its own global scope, so variables and functions a Startup script defines are not available to later scripts; a Startup script's modal dialog stays open while the next scripts run and the app starts; a Shutdown script's modal dialogs close as if canceled; the web app runs no Shutdown scripts |
+| `Scripts/ScriptUI Panels`: listed at the bottom of the Window menu, dockable like the app's own panels, `this` is the panel | `Scripts/ScriptUI Panels/` in the settings folder (File ▸ Scripts ▸ Install ScriptUI Panel… copies one there), listed at the bottom of the Window menu (a subfolder, one level, is a submenu named after it), docked like any panel, `this` is the panel; the panels open when the app quits open again at the next launch | Same. Where a panel was docked isn't kept: workspace layouts aren't saved between launches |
+| Keyboard shortcuts for scripts (the Keyboard Shortcuts editor lists the scripts of the Scripts folder) | Edit ▸ Keyboard Shortcuts lists the scripts of File ▸ Scripts under File ▸ Scripts (`file.runScript {"name": "<file name>"}`); a key given to one is saved with the preset, File ▸ Scripts shows it, and pressing it runs the script as its menu entry does | Same. After Effects binds a key to a script's place in the alphabetical list (`ExecuteScriptMenuItem01`…), and EffectZ binds it to the script's file name. The Window menu entries of ScriptUI panels aren't offered |
 | Running a script from the command line (`afterfx -r script.jsx`) | `effectz-cli script`, the control channel's and MCP's `script.run` | Same purpose, other entry points |
 | `app.settings` (kept in the preferences between sessions) | Kept in `script_settings.json` in the settings folder (`script.settings.get` / `script.settings.save`) | Same |
 | Allow Scripts to Write Files and Access Network | Settings ▸ Scripting & Expressions | Same |
@@ -38,8 +39,17 @@ journaled and the same as the UI's action. The `effectz-script` crate's docs
   file.jsx`, or `script.run {code, name}` over the control channel and MCP.
 * Install one: File ▸ Scripts ▸ Install Script File… (or copy it into `Scripts/` in the settings
   folder). It is listed in File ▸ Scripts at once (After Effects asks for a restart).
+* Run one at every launch or quit: copy it into `Scripts/Startup/` or `Scripts/Shutdown/` in the
+  settings folder. These scripts are not listed in File ▸ Scripts. `file.runStartupScripts` and
+  `file.runShutdownScripts` run them and return `{ran, waiting, failed}`; the desktop app calls them at
+  launch and quit, and the web app calls `file.runStartupScripts` at launch.
 * `file.scripts.list` lists installed and bundled scripts and panels; `file.runScript {name}` runs
   one; `file.uninstallScript {name}` removes an installed one.
+* A subfolder of `Scripts/` is a submenu of File ▸ Scripts named after the folder, and its scripts
+  are named `Folder/File.jsx` in `file.scripts.list` and `file.runScript`. One level of folders is
+  listed; deeper folders are not. `file.uninstallScript` removes only scripts at the top of the
+  Scripts folders: delete a script in a subfolder yourself. A subfolder may be a link to another
+  folder (an extension's own), and uninstall never deletes a file through it.
 
 ## ScriptUI panels
 
@@ -50,6 +60,13 @@ runs the script and docks its panel as a tab, which you can move, float, maximiz
 other panel. Closing the tab closes the panel (its `onClose` runs). Panels open when EffectZ
 quits open again at the next launch (`window.restoreScriptPanels`, which the desktop and web apps
 run at start-up; the list is `scriptui_panels.json` in the settings folder).
+
+To group panels, for example the several panels of one extension, make a subfolder of
+`Scripts/ScriptUI Panels/` and put them in it: `Scripts/ScriptUI Panels/My Tools/Animate.jsx` is
+listed as Window ▸ My Tools ▸ Animate.jsx, its tab is titled Animate, and commands name it
+`My Tools/Animate.jsx` (`window.scriptPanel {name}`). One level of folders is listed. Install
+ScriptUI Panel… copies a panel to the top of the folder; make the subfolder and move panels into it
+yourself, and delete them from it yourself too.
 
 Run from File ▸ Scripts instead, the same script gets no panel, so it should make a floating
 palette itself. A minimal panel:
@@ -253,7 +270,7 @@ impl EffectPlugin for Swap {
 register_plugin(Arc::new(Swap(manifest)))?; // before the UI builds its menus
 ```
 
-`PluginParams` reads values by parameter id (`f`, `b`, `point`, `color`). At most 64 plug-in
+`PluginParams` reads values by parameter id (`f`, `b`, `point`, `color`). At most 256 plug-in
 effects can be registered per process.
 
 ### Compatibility
@@ -261,3 +278,48 @@ effects can be registered per process.
 The API version is checked when a plug-in loads: a manifest or module for another version is
 refused with a message. Within a version the contract above does not change; additions (new
 parameter types, new optional exports) bump the version.
+
+## Plug-in Library
+
+Settings ▸ Plug-in Library (also Effect ▸ Plug-in Library…) lists WebAssembly effect plug-ins
+published by the community, and installs, updates and removes them without bundling them into
+the app. Only WebAssembly effects are listed: they run in the same sandbox as any plug-in, so a
+package can't read files, open the network or crash the app.
+
+* **One reviewed catalog.** The list comes from one `index.json` in the
+  [`storytold/effectz-plugins`](https://github.com/storytold/effectz-plugins) repository;
+  packages are added by pull request and reviewed there. The app has no field for another
+  catalog; `library.refresh {catalog}` (for plug-in authors testing an entry) takes an `index.json`
+  on GitHub or a local file, and the page then says it shows a test catalog until Refresh.
+* **Nothing is downloaded until you ask.** Fetch Catalog (`library.refresh`) reads the catalog;
+  Install (`library.install`) downloads the package's `.wasm`, checks its SHA-256 (and its size, when the
+  catalog gives one) against the catalog and loads it. Downloads use the system's `curl`,
+  `https://` only and starting on GitHub's hosts (redirects stay on `https://`; the SHA-256 check
+  is what guarantees the file).
+* **Where it goes.** `<Plug-ins>/Library/<id>/<version>/<id>.wasm` (the `Plug-ins` folder next to
+  the settings), listed in `Library/installed.json`. Installed packages load at start-up, each
+  checked against the SHA-256 it was installed with. The catalog last fetched is kept as
+  `Library/catalog.json`, so the list works offline.
+* **Restart after removing or updating.** Registered effects can't be unloaded: removing or
+  updating a package whose effects are loaded takes effect at the next start, and the list says
+  "Restart EffectZ to finish".
+* **Preview before installing.** Preview (`library.preview`) downloads the package's module
+  (checked against the catalog's size and SHA-256) without installing it, and renders its
+  effect in the sandbox on a built-in sample frame with default parameters: 2 seconds at 12 fps,
+  with a Before/After split. The details show it playing, the effects with their parameter names,
+  "Open on GitHub" (the package's `repo`) and, when the package has a `preview.video` link (an
+  `https://` YouTube, Vimeo or GitHub URL), "Watch video".
+* **Missing effects.** `library.missing` lists the effects a project uses that aren't installed,
+  and the catalog packages that provide them.
+
+Commands (UI, CLI, control channel and MCP): `library.list {query?, tag?, installed?}`,
+`library.refresh {catalog?, wait?}`, `library.preview {id, version?, wait?}`,
+`library.install {id, version?, wait?}`, `library.update {id?, wait?}`, `library.uninstall {id}`,
+`library.missing`, `library.loadInstalled`. Downloads run in the background; `wait: true` runs
+them to the end (scripts and tests).
+
+### Publishing a plug-in
+
+[publishing-plugins.md](publishing-plugins.md) walks through it from an empty folder to a listed
+package: build, test, release on GitHub, the catalog entry and its fields, testing the entry with a
+local `file://` catalog, the pull request and its review, updates and removal.
