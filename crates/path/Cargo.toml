@@ -15,4 +15,4 @@ effectz-keyframe = { workspace = true }
 effectz-raster = { workspace = true }
 kurbo = { workspace = true }
 tiny-skia = { workspace = true }
-linesweeper = "0.4"
+linesweeper = "0.5"
