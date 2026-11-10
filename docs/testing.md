@@ -2,8 +2,35 @@
 
 ```sh
 cargo test --workspace     # everything
-cargo xtask ci             # fmt, clippy -D warnings, tests, layers, assets, wasm
+cargo xtask ci             # fmt, clippy -D warnings, tests, pdf-deps, lock-patches, layers, assets, wasm
 ```
+
+The After Effects test projects of `crates/aep` are not in the repository; without them the
+`crates/aep`, engine and ui-egui tests that need one print `SKIPPED: fixture <name> missing` and
+pass. They live in [storytold/effectz-corpus](https://github.com/storytold/effectz-corpus).
+`cargo xtask aep-corpus` fetches them at the commit pinned in `crates/aep/tests/fixtures/corpus.lock`,
+checks every file against the SHA-256 listed there (any mismatch fails and installs nothing) and
+installs them in `corpus/aep`. Point `EFFECTZ_AEP_FIXTURES` at that folder to run those tests
+too, and set `EFFECTZ_AEP_FIXTURES_REQUIRED=1` as well to make a missing project fail its test
+instead of skipping (a corpus run that must not pass by skipping):
+
+```sh
+cargo xtask aep-corpus
+EFFECTZ_AEP_FIXTURES=corpus/aep EFFECTZ_AEP_FIXTURES_REQUIRED=1 cargo test -p effectz-aep
+```
+
+The `dev` profile keeps debug info to line tables (fast builds, readable backtraces). To debug
+interactively — local variables, parameters, column breakpoints — build with the `dev-full`
+profile: `cargo run --profile dev-full -p effectz -- --demo` (see `CONTRIBUTING.md`).
+
+`cargo xtask ci` builds in the dev profile and runs the tests with `cargo nextest run` (plus
+`cargo test --doc`) when `cargo-nextest` is installed, and with `cargo test` otherwise. It then
+runs `missing_translations_report` with `--nocapture`, which prints the interface strings each
+language has no translation for. Those strings show in English; the report always passes.
+
+Each crate with several integration-test files has one test binary, `tests/it/main.rs`, whose
+modules are the files in `tests/it/`. Run one file with `cargo test -p <crate> --test it <module>::`
+or `cargo nextest run -p <crate> -E 'binary(it) and test(/^<module>::/)'`.
 
 ## What the tests cover
 
@@ -16,7 +43,7 @@ cargo xtask ci             # fmt, clippy -D warnings, tests, layers, assets, was
 - **Effects** (`crates/effects`): each effect has a determinism test and at least one behaviour
   test (identity at neutral settings, known pixel results, or simulations giving the same frame
   whether you seek straight to it or play up to it). A registry-wide test checks that effects
-  which read the clock are declared time-dependent. `crates/effects/tests/sim_golden.rs` pins
+  which read the clock are declared time-dependent. `crates/effects/tests/it/sim_golden.rs` pins
   exact pixel hashes of the simulation effects the GPU shares plans with (CC Rainfall … Card
   Wipe) at several settings, times, bit depths and resolutions, so any change to their CPU output
   fails (re-pin with `SIM_GOLDEN_PRINT=1` after an intended change; pinned for aarch64 macOS,
@@ -85,3 +112,27 @@ and line instead of being discarded. `--fail-over PCT` requires the same run key
 successful latest runs, and at least one comparable resource metric per run. Failed latest runs,
 missing coverage, empty results and wall-time-only measurements cannot pass the gate. Omit
 `--fail-over` for an exploratory partial comparison; failed latest runs remain visible.
+
+## Unexpected desktop exit diagnostics
+
+The desktop starts a separate, lightweight reporter before loading fonts, projects or the GPU.
+A normal exit (including a handled startup error) sends a clean marker only after desktop
+teardown. macOS finishes at the end of its successful exit hook because its native event loop
+terminates without returning to main; other platforms finish after the event loop returns.
+A teardown panic leaves reporting armed. An abort or other unexpected process termination
+closes the pipe without that marker.
+The helper saves a local report under the session log folder's `Crash Reports` directory and
+shows a native error dialog. Control-server launches save the report without a modal dialog.
+Reports contain version/platform and at most the last 64 KiB of the matching session's log.
+Logging filters and the session file size cap can omit later events from that tail.
+They are never uploaded automatically. Review logs for private project paths before sharing.
+
+Run `cargo test -p effectz crash_report::tests` for bounded protocol, normal shutdown,
+actual subprocess abort, unrelated child handles, concurrent sessions, missing log/helper,
+log rotation and report-write failure coverage. The three ignored tests are subprocess entry
+points launched by these tests, not manual tests.
+
+This is diagnosis, not memory recovery: a pipe closing does not prove an out-of-memory failure
+or provide the process's exit code. System-wide exhaustion, killing the whole process tree,
+or an unavailable native dialog service can also prevent the helper from reporting. Existing
+auto-save recovery remains responsible for restoring previously saved work.
