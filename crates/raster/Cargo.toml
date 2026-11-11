@@ -13,3 +13,4 @@ workspace = true
 effectz-geom = { workspace = true }
 effectz-color = { workspace = true }
 rayon = { workspace = true }
+tempfile = { workspace = true }
