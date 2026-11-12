@@ -20,6 +20,9 @@ effectz-ui-egui = { workspace = true }
 effectz-render = { workspace = true }
 effectz-gpu = { workspace = true }
 effectz-time = { workspace = true }
+effectz-track = { workspace = true }
+effectz-segment = { workspace = true }
+effectz-sam2 = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }
 cpu-time = "1"
