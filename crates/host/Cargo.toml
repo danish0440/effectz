@@ -18,13 +18,17 @@ effectz-expr = { workspace = true }
 effectz-script = { workspace = true }
 effectz-export = { workspace = true }
 effectz-plugin = { workspace = true }
+serde_json = { workspace = true }
 
 # WebAssembly effect plug-ins run in wasmi on native builds.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 effectz-plugin = { workspace = true, features = ["wasm"] }
+# External effect helpers: separate processes, so their native code can't take the app down.
+effectz-helper-host = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 effectz-psd = { workspace = true }
 effectz-svg = { workspace = true }
 effectz-pdf = { workspace = true }
