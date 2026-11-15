@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 craft-docpath = { workspace = true }
 effectz-time = { workspace = true }
+effectz-color = { workspace = true }
 effectz-project = { workspace = true }
 effectz-raster = { workspace = true }
 effectz-render = { workspace = true }
@@ -21,16 +22,26 @@ effectz-pdf = { workspace = true }
 effectz-model = { workspace = true }
 filmcraft-codecs = { workspace = true }
 filmcraft-media = { workspace = true }
-filmcraft-isobmff = { workspace = true }
+craft-dpx = { workspace = true }
+craft-exr = { workspace = true }
+craft-gif = { workspace = true }
+craft-webp = { workspace = true }
+craft-audio = { workspace = true }
+craft-media = { workspace = true }
+filmcraft-mpegts = { workspace = true }
 filmcraft-frame = { workspace = true }
 filmcraft-color = { workspace = true }
 filmcraft-time = { workspace = true }
-# AIFF import (#1428): enables the aiff reader of filmcraft-codecs' symphonia.
-symphonia = { workspace = true }
 exr = { workspace = true }
-gif = { workspace = true }
 image = { workspace = true, features = ["gif", "webp", "tiff", "bmp", "exr", "tga", "hdr"] }
 rayon = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+# Writes the animated GIFs of the tests.
+gif = { workspace = true }
+tempfile = { workspace = true }
+# (tests render comps that read layers through effects; already a dependency of effectz-render)
+effectz-effects = { workspace = true }
