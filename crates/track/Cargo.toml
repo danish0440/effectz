@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+craft-mime = { workspace = true }
 effectz-raster = { workspace = true }
 effectz-segment = { workspace = true }
 rayon = { workspace = true }
