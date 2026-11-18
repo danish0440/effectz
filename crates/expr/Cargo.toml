@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 effectz-time = { workspace = true }
+effectz-effects = { workspace = true }
 effectz-geom = { workspace = true }
 effectz-keyframe = { workspace = true }
 serde_json = { workspace = true }
@@ -25,5 +26,4 @@ boa_engine = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 effectz-color = { workspace = true }
-effectz-effects = { workspace = true }
 effectz-text = { workspace = true }
