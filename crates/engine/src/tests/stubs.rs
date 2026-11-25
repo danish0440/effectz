@@ -1,0 +1,1201 @@
+//! Menu entries that used to be disabled stubs (M3.8 burn-down): mask and shape path commands,
+//! mask options, Look at Layers, view layouts, Create Camera from 3D View, output modules,
+//! Pre-render and Save Current Preview.
+
+use std::sync::{Arc, Mutex};
+
+use effectz_keyframe::Value as KV;
+use effectz_project::render_queue::{OutputFormat, PostRenderAction};
+use effectz_project::{FeatherFalloff, Footage, FootageKind, GroupKind, LayerId, LayerSource, MaskMotionBlur};
+use effectz_time::{FrameRate, Tick};
+use serde_json::json;
+
+use crate::{Event, ExportJob, ExportResult, Exporter, Importer, Session};
+
+fn comp() -> Session {
+    let mut s = Session::default();
+    s.execute("comp.new", json!({"name": "Main", "width": 400, "height": 300, "frameRate": 30, "duration": 4})).unwrap();
+    s
+}
+
+fn layer(s: &Session, id: u64) -> effectz_project::Layer {
+    s.active_comp().unwrap().layer(LayerId(id)).unwrap().clone()
+}
+
+/// A solid with one closed square mask; returns (layer id, mask uid).
+fn masked(s: &mut Session) -> (u64, u64) {
+    let l = s.execute("layer.newSolid", json!({"color": "#ffffff", "width": 400, "height": 300})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("mask.new", json!({"layer": l, "vertices": [[100, 100], [300, 100], [300, 200], [100, 200]], "closed": true})).unwrap();
+    let m = layer(s, l).masks().unwrap().groups().next().unwrap().uid;
+    (l, m)
+}
+
+fn mask_path(s: &Session, l: u64, m: u64) -> effectz_keyframe::ShapePath {
+    let ly = layer(s, l);
+    let g = ly.masks().unwrap().find_group(m).unwrap();
+    g.get("path").unwrap().value.as_path().unwrap().clone()
+}
+
+fn mask_kind(s: &Session, l: u64) -> GroupKind {
+    layer(s, l).masks().unwrap().groups().next().unwrap().kind.clone()
+}
+
+#[test]
+fn roto_bezier_and_convert_to_bezier() {
+    let mut s = comp();
+    let (l, m) = masked(&mut s);
+    assert!(mask_path(&s, l, m).out_tangents.iter().all(|t| *t == [0.0, 0.0]));
+    s.execute("path.rotoBezier", json!({"layer": l})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }));
+    let p = mask_path(&s, l, m);
+    // Vertex 0 at (100,100): neighbours (100,200) and (300,100) → tangent (200,-100)/6.
+    assert!((p.out_tangents[0][0] - 200.0 / 6.0).abs() < 1e-9 && (p.out_tangents[0][1] + 100.0 / 6.0).abs() < 1e-9, "{:?}", p.out_tangents);
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    assert_eq!(crate::menus::checked(&s, "path.rotoBezier", &json!({})), Some(true));
+    // Moving a vertex keeps the tangents automatic.
+    s.execute("mask.selectVertices", json!({"vertices": [{"layer": l, "mask": m, "index": 2}]})).unwrap();
+    s.execute("mask.moveVertices", json!({"delta": [50, 50]})).unwrap();
+    let q = mask_path(&s, l, m);
+    assert_ne!(q.out_tangents[1], p.out_tangents[1]);
+    s.execute("path.convertToBezier", json!({"layer": l})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: false, .. }));
+    assert_eq!(mask_path(&s, l, m), q, "convert keeps the tangents");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }));
+}
+
+#[test]
+fn set_first_vertex_and_free_transform() {
+    let mut s = comp();
+    let (l, m) = masked(&mut s);
+    s.state.selected_vertices.clear();
+    assert!(!s.is_enabled("path.setFirstVertex"));
+    s.execute("mask.selectVertices", json!({"vertices": [{"layer": l, "mask": m, "index": 2}]})).unwrap();
+    assert!(s.is_enabled("path.setFirstVertex"));
+    s.execute("path.setFirstVertex", json!({})).unwrap();
+    let p = mask_path(&s, l, m);
+    assert_eq!(p.vertices[0], [300.0, 200.0]);
+    assert_eq!(p.vertices[3], [300.0, 100.0]);
+    assert_eq!(s.state.selected_vertices[0].index, 0);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(mask_path(&s, l, m).vertices[0], [100.0, 100.0]);
+    // Free Transform the whole mask: scale 50 % about its centre, then move.
+    s.state.selected_vertices.clear();
+    s.execute("path.freeTransform", json!({"layer": l, "scale": 50, "offset": [10, 0]})).unwrap();
+    let p = mask_path(&s, l, m);
+    assert_eq!(p.vertices[0], [160.0, 125.0]);
+    assert_eq!(p.vertices[2], [260.0, 175.0]);
+    // Rotation of selected vertices only.
+    s.execute("mask.selectVertices", json!({"vertices": [{"layer": l, "mask": m, "index": 0}, {"layer": l, "mask": m, "index": 1}]})).unwrap();
+    s.execute("path.freeTransform", json!({"rotation": 180})).unwrap();
+    let q = mask_path(&s, l, m);
+    assert!((q.vertices[0][0] - 260.0).abs() < 1e-9 && (q.vertices[1][0] - 160.0).abs() < 1e-9);
+    assert_eq!(q.vertices[2], p.vertices[2]);
+    assert!(s.execute("path.freeTransform", json!({})).is_err());
+}
+
+#[test]
+fn group_and_ungroup_shapes() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect"})).unwrap()["layer"].as_u64().unwrap();
+    let contents = layer(&s, l).props.sub("contents").unwrap().clone();
+    let outer = contents.groups().next().unwrap().clone();
+    let inner: Vec<u64> = outer.sub("contents").unwrap().groups().map(|g| g.uid).collect();
+    assert!(inner.len() >= 2, "{outer:?}");
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    s.state.selected_props = inner.iter().map(|u| (LayerId(l), *u)).collect();
+    assert!(s.is_enabled("path.groupShapes"));
+    let g = s.execute("path.groupShapes", json!({})).unwrap()["group"].as_u64().unwrap();
+    let ly = layer(&s, l);
+    let o = ly.props.sub("contents").unwrap().find_group(outer.uid).unwrap();
+    let kids: Vec<&str> = o.sub("contents").unwrap().groups().map(|x| x.match_id.as_str()).collect();
+    assert_eq!(kids, ["group"]);
+    assert_eq!(o.find_group(g).unwrap().sub("contents").unwrap().groups().count(), inner.len());
+    let before = s.render_rgba8(s.active_comp_id().unwrap(), Tick::ZERO, 200).unwrap();
+    // Move the new group, then ungroup: the offset is baked into its items.
+    let gp = ly.props.sub("contents").unwrap().find_group(g).unwrap().sub("transform").unwrap().get("position").unwrap().uid;
+    s.edit("t", None, |proj, _| {
+        let cid = proj.comps().next().map(|(i, _)| *i).unwrap();
+        let l = proj.comp_mut(cid).unwrap().layer_mut(LayerId(l)).unwrap();
+        l.props.find_mut(gp).unwrap().value = KV::Vec2([0.0, 0.0]);
+        Ok(())
+    })
+    .unwrap();
+    s.state.selected_props = vec![(LayerId(l), g)];
+    s.execute("path.ungroupShapes", json!({})).unwrap();
+    let ly = layer(&s, l);
+    let o = ly.props.sub("contents").unwrap().find_group(outer.uid).unwrap();
+    assert_eq!(o.sub("contents").unwrap().groups().count(), inner.len());
+    assert_eq!(s.render_rgba8(s.active_comp_id().unwrap(), Tick::ZERO, 200).unwrap(), before);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(layer(&s, l).props.find_group(g).is_some());
+}
+
+#[test]
+fn mask_motion_blur_feather_falloff_and_hide_locked() {
+    let mut s = comp();
+    let (l, _) = masked(&mut s);
+    s.execute("layer.mask.set", json!({"layer": l, "field": "feather", "value": 40})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    let smooth = s.render_rgba8(cid, Tick::ZERO, 0).unwrap();
+    s.execute("layer.mask.featherFalloff", json!({"layer": l, "mode": "linear"})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { feather_falloff: FeatherFalloff::Linear, .. }));
+    let linear = s.render_rgba8(cid, Tick::ZERO, 0).unwrap();
+    assert_ne!(smooth, linear);
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    assert_eq!(crate::menus::checked(&s, "layer.mask.featherFalloff", &json!({"mode": "linear"})), Some(true));
+    s.execute("layer.mask.motionBlur", json!({"layer": l, "mode": "on"})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { motion_blur: MaskMotionBlur::On, .. }));
+    assert!(s.execute("layer.mask.motionBlur", json!({"layer": l, "mode": "sometimes"})).is_err());
+    // Mask motion blur blurs an animated mask path.
+    s.execute("layer.mask.set", json!({"layer": l, "field": "feather", "value": 0})).unwrap();
+    let still = s.render_rgba8(cid, Tick::from_seconds_f64(0.5), 0).unwrap();
+    s.execute("prop.addKey", json!({"layer": l, "path": "masks/#1/path", "time": 0.0})).unwrap();
+    s.execute("time.set", json!({"time": 1.0})).unwrap();
+    s.execute("mask.selectVertices", json!({"vertices": []})).unwrap();
+    s.execute("path.freeTransform", json!({"layer": l, "offset": [80, 0]})).unwrap();
+    let blurred = s.render_rgba8(cid, Tick::from_seconds_f64(0.5), 0).unwrap();
+    let soft = |img: &(u32, u32, Vec<u8>)| img.2.chunks(4).filter(|p| p[0] > 10 && p[0] < 245).count();
+    assert!(soft(&blurred) > soft(&still) + 100, "{} vs {}", soft(&blurred), soft(&still));
+    s.execute("layer.mask.motionBlur", json!({"layer": l, "mode": "off"})).unwrap();
+    let sharp = s.render_rgba8(cid, Tick::from_seconds_f64(0.5), 0).unwrap();
+    assert!(soft(&sharp) < soft(&blurred));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { motion_blur: MaskMotionBlur::On, .. }));
+    // Hide Locked Masks is a viewer toggle.
+    assert!(s.execute("layer.mask.hideLocked", json!({})).unwrap().as_bool().unwrap());
+    assert_eq!(crate::menus::checked(&s, "layer.mask.hideLocked", &json!({})), Some(true));
+}
+
+#[test]
+fn look_at_layers_2d_and_3d() {
+    let mut s = comp();
+    let a = s.execute("layer.newSolid", json!({"color": "#ff0000", "width": 40, "height": 20})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.setTransform", json!({"layer": a, "prop": "position", "value": [50, 60]})).unwrap();
+    s.drain_events();
+    s.execute("layer.select", json!({"layers": [a]})).unwrap();
+    let r = s.execute("view.lookAtSelected", json!({})).unwrap();
+    assert_eq!(r["rect"], json!([30.0, 50.0, 70.0, 70.0]));
+    assert!(s.drain_events().iter().any(|e| matches!(e, Event::Frontend { command, .. } if command == "view.lookAt")));
+    // 3D: a custom view frames the layers; the active camera view moves the camera (undoable).
+    s.execute("layer.setSwitch", json!({"layer": a, "switch": "threeD", "value": true})).unwrap();
+    s.execute("layer.newCamera", json!({})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    s.execute("view.3d.custom1", json!({})).unwrap();
+    let r = s.execute("view.lookAtAll", json!({})).unwrap();
+    let poi = r["poi"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect::<Vec<_>>();
+    assert!((poi[0] - 50.0).abs() < 1e-6 && (poi[1] - 60.0).abs() < 1e-6, "{r}");
+    s.execute("view.3d.activeCamera", json!({})).unwrap();
+    let cam = s.active_comp().unwrap().layers.iter().find(|l| l.is_camera()).unwrap().id;
+    let before = s.active_comp().unwrap().layer(cam).unwrap().props.prop("transform/position").unwrap().value.clone();
+    s.execute("layer.select", json!({"layers": [a]})).unwrap();
+    s.execute("view.lookAtSelected", json!({})).unwrap();
+    let c = s.project.comp(cid).unwrap().layer(cam).unwrap();
+    assert_eq!(c.props.prop("transform/poi").unwrap().value.as_vec3()[..2], [50.0, 60.0]);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.project.comp(cid).unwrap().layer(cam).unwrap().props.prop("transform/position").unwrap().value, before);
+}
+
+#[test]
+fn camera_from_view_and_view_layout() {
+    let mut s = comp();
+    s.execute("layer.newSolid", json!({"color": "#ff0000"})).unwrap();
+    assert!(s.execute("camera.fromView", json!({})).is_err(), "needs a 3D view");
+    s.execute("view.3d.custom2", json!({})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    let vc = s.state.views3d[&cid].cam(effectz_render::three_d::View3D::Custom2, 400.0, 300.0);
+    let r = s.execute("camera.fromView", json!({})).unwrap();
+    let cam = layer(&s, r["layer"].as_u64().unwrap());
+    assert!(cam.is_camera());
+    let pos = cam.props.prop("transform/position").unwrap().value.as_vec3();
+    assert!((0..3).all(|i| (pos[i] - vc.eye[i]).abs() < 1e-6), "{pos:?} {:?}", vc.eye);
+    assert_eq!(s.state.views3d[&cid].current, effectz_render::three_d::View3D::ActiveCamera);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(!s.active_comp().unwrap().layers.iter().any(|l| l.is_camera()));
+    // Switch View Layout.
+    assert_eq!(s.state.view_layout, 1);
+    s.execute("view.layout", json!({"views": 2})).unwrap();
+    assert_eq!(s.state.view_layout, 2);
+    assert_eq!(crate::menus::checked(&s, "view.layout", &json!({"views": 2})), Some(true));
+    assert!(s.execute("view.layout", json!({"views": 3})).is_err());
+    assert!(s.execute("view.shareViewOptions", json!({})).unwrap().as_bool().unwrap());
+}
+
+struct MockExporter {
+    log: Mutex<Vec<String>>,
+}
+
+impl Exporter for MockExporter {
+    fn formats(&self) -> Vec<OutputFormat> {
+        OutputFormat::ALL.to_vec()
+    }
+    fn export(&self, job: &ExportJob, _: &mut dyn FnMut(u64, u64) -> bool) -> Result<ExportResult, String> {
+        self.log.lock().unwrap().push(format!("{:?}:{}", job.item.output.format, job.path));
+        Ok(ExportResult { path: job.path.to_string(), frames: 1, ..Default::default() })
+    }
+}
+
+struct MockImporter;
+
+impl Importer for MockImporter {
+    fn probe(&self, path: &str) -> Result<Footage, String> {
+        Ok(Footage {
+            path: path.into(),
+            kind: FootageKind::Video,
+            width: 400,
+            height: 300,
+            pixel_aspect: 1.0,
+            frame_rate: FrameRate::FPS_30,
+            native_rate: None,
+            duration: Tick::from_seconds_f64(4.0),
+            has_video: true,
+            has_audio: false,
+            alpha: Default::default(),
+            premul_color: [0.0; 3],
+            loop_count: 1,
+            codec: "mock".into(),
+            missing: false,
+            sequence: vec![],
+            color_profile: None,
+            ..Default::default()
+        })
+    }
+}
+
+fn rq() -> (Session, Arc<MockExporter>) {
+    let mut s = comp();
+    let ex = Arc::new(MockExporter { log: Default::default() });
+    s.exporter = Some(ex.clone());
+    s.importer = Some(Arc::new(MockImporter));
+    (s, ex)
+}
+
+/// An output path that is absolute on every platform. `/tmp/...` has no drive letter on Windows,
+/// where it means "the current drive" to the OS but resolves against the home folder's drive in
+/// the render queue, so a test cannot know which drive to expect.
+pub(crate) fn tmp_out(rel: &str) -> String {
+    let base = std::env::temp_dir().join("effectz-rq-tests");
+    rel.split('/').fold(base, |p, part| p.join(part)).to_string_lossy().into_owned()
+}
+
+#[test]
+fn add_output_module_encodes_twice() {
+    let (mut s, ex) = rq();
+    assert!(!s.is_enabled("render.addOutputModule"));
+    s.execute("renderQueue.add", json!({"output": tmp_out("om/main.mp4")})).unwrap();
+    let r = s.execute("render.addOutputModule", json!({"format": "png"})).unwrap();
+    assert_eq!(r["module"], 2);
+    assert_eq!(r["outputModules"], 2);
+    let extra = r["extraOutputs"][0]["outputPath"].as_str().unwrap().to_string();
+    assert!(extra.ends_with(".png"), "{extra}");
+    // Module 2 is editable on its own.
+    s.execute("renderQueue.setOutput", json!({"index": 1, "module": 2, "path": tmp_out("om/second.mov")})).unwrap();
+    assert!(s.execute("renderQueue.setOutput", json!({"index": 1, "module": 3, "path": "/tmp/x.mov"})).is_err());
+    s.execute("renderQueue.render", json!({})).unwrap();
+    assert_eq!(
+        ex.log
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                let (format, path) = entry.split_once(':').unwrap();
+                (format.to_string(), std::path::PathBuf::from(path))
+            })
+            .collect::<Vec<_>>(),
+        [("H264".to_string(), std::path::PathBuf::from(tmp_out("om/main.mp4"))), ("ProRes".to_string(), std::path::PathBuf::from(tmp_out("om/second.mov")))]
+    );
+    assert_eq!(s.project.render_queue[0].status.label(), "Done");
+    assert_eq!(std::path::Path::new(s.project.render_queue[0].last_output.as_deref().unwrap()), std::path::PathBuf::from(tmp_out("om/main.mp4")));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.project.render_queue[0].extra_outputs.len(), 1, "undo the Output To edit");
+}
+
+#[test]
+fn pre_render_imports_and_replaces() {
+    let (mut s, ex) = rq();
+    let inner = s.active_comp_id().unwrap();
+    s.execute("layer.newSolid", json!({"color": "#00ff00"})).unwrap();
+    s.execute("comp.new", json!({"name": "Outer", "width": 400, "height": 300, "frameRate": 30, "duration": 4})).unwrap();
+    let outer = s.active_comp_id().unwrap();
+    s.execute("layer.addItem", json!({"item": inner.0})).unwrap();
+    s.open_comp(inner);
+    let r = s.execute("render.preRender", json!({"output": tmp_out("pre/inner.mov")})).unwrap();
+    assert_eq!(r["postRenderAction"], "Import & Replace Usage");
+    assert_eq!(s.project.render_queue[0].post_render, PostRenderAction::ImportAndReplace);
+    s.execute("renderQueue.render", json!({})).unwrap();
+    assert_eq!(ex.log.lock().unwrap().len(), 1);
+    let l = &s.project.comp(outer).unwrap().layers[0];
+    let LayerSource::Footage { item } = l.source else { panic!("not replaced: {:?}", l.source) };
+    assert!(
+        matches!(&s.project.item(item).unwrap().kind, effectz_project::ItemKind::Footage(f) if std::path::Path::new(&f.path) == std::path::PathBuf::from(tmp_out("pre/inner.mov")))
+    );
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(matches!(s.project.comp(outer).unwrap().layers[0].source, LayerSource::Comp { .. }));
+}
+
+#[test]
+fn post_render_actions_import_and_set_proxy() {
+    let (mut s, _) = rq();
+    let cid = s.active_comp_id().unwrap();
+    let items_before = s.project.items.len();
+    // Import: the rendered file becomes a footage item.
+    let a = s.execute("renderQueue.add", json!({"output": tmp_out("post/a.mov")})).unwrap();
+    s.execute("renderQueue.setOutputModule", json!({"item": a["item"], "postRenderAction": "import"})).unwrap();
+    assert_eq!(s.project.render_queue[0].post_render, PostRenderAction::Import);
+    s.execute("renderQueue.render", json!({})).unwrap();
+    assert_eq!(s.project.items.len(), items_before + 1);
+    assert!(s.project.items.values().any(
+        |i| matches!(&i.kind, effectz_project::ItemKind::Footage(f) if std::path::Path::new(&f.path) == std::path::PathBuf::from(tmp_out("post/a.mov")))
+    ));
+    // Set Proxy: the comp gets the render as its proxy.
+    let b = s.execute("renderQueue.add", json!({"output": tmp_out("post/b.mov")})).unwrap();
+    s.execute("renderQueue.setOutputModule", json!({"item": b["item"], "postRenderAction": "Set Proxy"})).unwrap();
+    s.execute("renderQueue.render", json!({})).unwrap();
+    let px = s.project.item(cid).unwrap().proxy.clone().expect("proxy set");
+    assert_eq!(std::path::Path::new(&px.footage.path), std::path::PathBuf::from(tmp_out("post/b.mov")));
+    // None: nothing happens.
+    let n = s.project.items.len();
+    let c = s.execute("renderQueue.add", json!({"output": tmp_out("post/c.mov")})).unwrap();
+    s.execute("renderQueue.setOutputModule", json!({"item": c["item"], "postRenderAction": "none"})).unwrap();
+    s.execute("renderQueue.render", json!({})).unwrap();
+    assert_eq!(s.project.items.len(), n);
+    assert!(s.execute("renderQueue.setOutputModule", json!({"item": c["item"], "postRenderAction": "explode"})).is_err());
+}
+
+#[test]
+fn templates_save_apply_default_and_persist() {
+    let (mut s, _) = rq();
+    let t = s.execute("renderQueue.templates", json!({})).unwrap();
+    let names: Vec<&str> = t["renderSettings"].as_array().unwrap().iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Best Settings", "Draft Settings", "DV Settings", "Multi-Machine Settings", "Current Settings"]);
+    assert!(t["outputModules"].as_array().unwrap().iter().any(|m| m["name"] == "High Quality with Alpha"));
+    assert_eq!(t["defaults"]["renderSettings"]["Movie"], "Best Settings");
+    // A new item starts from the Movie defaults.
+    let a = s.execute("renderQueue.add", json!({"output": "/tmp/t/a.mp4"})).unwrap();
+    assert_eq!(a["renderSettingsSummary"], "Best Settings");
+    assert_eq!(a["outputModuleSummary"], "H.264 - Match Render Settings - 15 Mbps");
+    // Edit it: Custom; save templates from it; make them the defaults.
+    let r = s
+        .execute(
+            "renderQueue.setRenderSettings",
+            json!({"item": a["item"], "fieldRender": "upper", "pulldown": "WSSWW", "colorDepth": 16, "effects": "allOff", "solo": "allOff", "guideLayers": "current", "frameBlending": "offForAll", "motionBlur": "onForChecked", "duration": 0.5, "storageOverflow": false}),
+        )
+        .unwrap();
+    assert_eq!(r["renderSettingsSummary"], "Custom");
+    assert_eq!(r["settings"]["field_render"], "UpperFirst");
+    s.execute(
+        "renderQueue.setOutputModule",
+        json!({"item": a["item"], "format": "png", "channels": "rgba", "color": "premultiplied", "crop": {"top": 2, "bottom": 2}, "resize": {"width": 320, "height": 200, "lockAspect": false, "quality": "low"}}),
+    )
+    .unwrap();
+    s.execute("renderQueue.saveTemplate", json!({"kind": "renderSettings", "name": "Interlaced 16", "item": a["item"]})).unwrap();
+    s.execute("renderQueue.saveTemplate", json!({"kind": "outputModule", "name": "Small PNG", "item": a["item"], "params": {"quality": 50}})).unwrap();
+    s.execute("renderQueue.setTemplateDefault", json!({"kind": "renderSettings", "slot": "movie", "name": "Interlaced 16"})).unwrap();
+    s.execute("renderQueue.setTemplateDefault", json!({"kind": "outputModule", "slot": "movie", "name": "Small PNG"})).unwrap();
+    assert!(s.execute("renderQueue.setTemplateDefault", json!({"kind": "outputModule", "slot": "movie", "name": "Nope"})).is_err());
+    let b = s.execute("renderQueue.add", json!({"output": "/tmp/t/b_[####].png"})).unwrap();
+    assert_eq!(b["renderSettingsSummary"], "Interlaced 16");
+    assert_eq!(b["outputModuleSummary"], "Small PNG");
+    let it = s.project.render_queue.last().unwrap().clone();
+    assert_eq!(it.output.resize.width, 320);
+    assert_eq!(it.output.output, "/tmp/t/b_[####].png");
+    assert_eq!((b["width"].as_u64(), b["height"].as_u64()), (Some(320), Some(200)));
+    // Apply built-ins to an item; the output path keeps its name with the new extension.
+    let r = s.execute("renderQueue.applyTemplate", json!({"item": a["item"], "renderSettings": "DV Settings", "outputModule": "High Quality"})).unwrap();
+    assert_eq!(r["renderSettingsSummary"], "DV Settings");
+    assert_eq!(r["outputModuleSummary"], "High Quality");
+    assert!(r["outputPath"].as_str().unwrap().ends_with("a.mov"), "{r}");
+    // Persisted with the project.
+    let p = effectz_project::Project::from_json(&s.project.to_json()).unwrap();
+    assert_eq!(p.render_templates, s.project.render_templates);
+    assert_eq!(p.render_queue, s.project.render_queue);
+    // Delete: saved ones go; built-ins stay. Undo restores.
+    s.execute("renderQueue.deleteTemplate", json!({"kind": "outputModule", "name": "Small PNG"})).unwrap();
+    assert!(s.project.render_templates.output_module("Small PNG").is_none());
+    assert!(s.execute("renderQueue.deleteTemplate", json!({"kind": "renderSettings", "name": "Best Settings"})).is_err());
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(s.project.render_templates.output_module("Small PNG").is_some());
+}
+
+#[test]
+fn save_frame_as_queues_with_the_frame_defaults() {
+    let (mut s, _) = rq();
+    s.execute("renderQueue.setTemplateDefault", json!({"kind": "outputModule", "slot": "still", "name": "TIFF Sequence with Alpha"})).unwrap();
+    let r = s.execute("comp.saveFrameAs", json!({"queue": true, "time": 1.0})).unwrap();
+    assert_eq!(r["queued"], true);
+    let it = s.project.render_queue.last().unwrap();
+    assert_eq!(it.output.format, OutputFormat::TiffSequence);
+    assert_eq!(it.settings.name, "Current Settings");
+    let comp = s.project.comp(it.comp).unwrap();
+    assert_eq!(it.settings.frame_count(comp), 1);
+    assert_eq!(it.settings.frame_time(comp, 0), Tick::from_seconds_f64(1.0));
+}
+
+#[test]
+fn log_notify_and_overflow_settings() {
+    let (mut s, _) = rq();
+    let a = s.execute("renderQueue.add", json!({"output": tmp_out("n/a.mp4"), "log": "plusPerFrameInfo"})).unwrap();
+    assert_eq!(a["logLabel"], "Plus Per Frame Info");
+    assert_eq!(std::path::Path::new(a["logPath"].as_str().unwrap()), std::path::PathBuf::from(tmp_out("n/a_RenderLog.txt")));
+    s.execute("renderQueue.setLog", json!({"item": a["item"], "log": "plusSettings"})).unwrap();
+    assert_eq!(s.project.render_queue[0].log, effectz_project::render_queue::RenderLog::PlusSettings);
+    s.execute("renderQueue.setOverflowFolders", json!({"folders": ["/tmp/o1", " ", "/tmp/o2"]})).unwrap();
+    assert_eq!(s.project.render_prefs.overflow_folders, ["/tmp/o1", "/tmp/o2"]);
+    assert_eq!(s.execute("renderQueue.setNotify", json!({})).unwrap()["notify"], true);
+    s.drain_events();
+    s.execute("renderQueue.render", json!({})).unwrap();
+    let ev = s.drain_events();
+    assert!(ev.iter().any(|e| matches!(e, Event::Frontend { command, .. } if command == "renderQueue.notify")), "{ev:?}");
+    s.execute("renderQueue.setNotify", json!({"notify": false})).unwrap();
+    s.execute("renderQueue.setRender", json!({"index": 1, "render": true})).unwrap();
+    s.execute("renderQueue.render", json!({})).unwrap();
+    assert!(!s.drain_events().iter().any(|e| matches!(e, Event::Frontend { command, .. } if command == "renderQueue.notify")));
+}
+
+#[test]
+fn save_current_preview_writes_a_movie() {
+    let (mut s, ex) = rq();
+    let r = s.execute("render.saveCurrentPreview", json!({"path": "/tmp/prev/clip.mov"})).unwrap();
+    assert_eq!(r["path"], "/tmp/prev/clip.mov");
+    assert_eq!(*ex.log.lock().unwrap(), vec!["ProRes:/tmp/prev/clip.mov".to_string()]);
+    assert!(s.project.render_queue.is_empty(), "not queued");
+}
+
+#[test]
+fn implemented_stubs_are_enabled_and_workspaces_are_frontend() {
+    let mut s = comp();
+    for id in ["view.layout", "view.lookAtAll", "camera.fromView", "render.saveCurrentPreview", "render.preRender", "layer.mask.hideLocked"] {
+        assert!(s.is_enabled(id), "{id}");
+    }
+    for id in ["window.saveWorkspace", "window.saveWorkspaceAs", "window.editWorkspaces"] {
+        s.execute(id, json!({"name": "Mine"})).unwrap();
+        assert!(s.drain_events().iter().any(|e| matches!(e, Event::Frontend { command, .. } if command == id)));
+    }
+    // What remains a stub is still disabled.
+    for id in ["layer.autoTrace", "layer.sceneEditDetection"] {
+        assert!(!s.is_enabled(id), "{id}");
+    }
+}
+
+/// The first path item in a shape layer's Contents, at any depth: (uid, match_id). A new shape
+/// layer nests it in a group ("Rectangle 1" ▸ "Rectangle Path 1"), as After Effects does.
+fn first_shape(s: &Session, l: u64) -> (u64, String) {
+    fn walk(g: &effectz_project::PropGroup) -> Option<(u64, String)> {
+        if ["rect", "ellipse", "star", "path"].contains(&g.match_id.as_str()) {
+            return Some((g.uid, g.match_id.clone()));
+        }
+        g.groups().find_map(walk)
+    }
+    walk(layer(s, l).props.sub("contents").unwrap()).unwrap()
+}
+
+fn shape_path_of(s: &Session, l: u64, uid: u64) -> effectz_keyframe::ShapePath {
+    let ly = layer(s, l);
+    let g = ly.props.sub("contents").unwrap().find_group(uid).unwrap();
+    let _ = &g;
+    g.get("path").unwrap().value.as_path().unwrap().clone()
+}
+
+/// Convert To Bezier Path on a shape layer's parametric path gives an editable Path 1 with the
+/// same geometry, as After Effects does (#932). The command only turned RotoBezier off for masks,
+/// so a Rectangle, Ellipse or Polystar path could not be converted at all.
+#[test]
+fn convert_to_bezier_turns_a_parametric_shape_into_an_editable_path() {
+    let convert = |args: serde_json::Value| {
+        let mut s = comp();
+        let l = s.execute("layer.newShape", args).unwrap()["layer"].as_u64().unwrap();
+        let (uid, was) = first_shape(&s, l);
+        assert_ne!(was, "path", "it starts out parametric");
+        s.state.selected_props = vec![(LayerId(l), uid)];
+        let out = s.execute("path.convertToBezier", json!({})).unwrap();
+        assert_eq!(out["paths"].as_u64(), Some(1));
+        let (new_uid, now) = first_shape(&s, l);
+        assert_eq!(now, "path", "it is a bezier path now");
+        // The new path is selected, so its vertices can be edited straight away.
+        assert_eq!(s.state.selected_props, vec![(LayerId(l), new_uid)]);
+        let path = shape_path_of(&s, l, new_uid);
+        assert!(path.closed, "a closed shape stays closed");
+        (s, l, was, path)
+    };
+    let radius = |v: [f64; 2]| v[0].hypot(v[1]);
+
+    // A 120 x 80 rectangle is its four corners, joined by straight edges, from the top-right
+    // corner clockwise as After Effects draws it.
+    let (mut s, l, was, rect) = convert(json!({"kind": "rect", "size": [120, 80]}));
+    assert_eq!(rect.vertices, vec![[60.0, -40.0], [60.0, 40.0], [-60.0, 40.0], [-60.0, -40.0]]);
+    assert!(rect.in_tangents.iter().chain(&rect.out_tangents).all(|t| *t == [0.0, 0.0]), "straight edges: {rect:?}");
+    // Undo brings the parametric shape back.
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(first_shape(&s, l).1, was, "undo restores the parametric shape");
+
+    // An ellipse is four cubic arcs: a vertex on each axis, with tangents of 0.5523 x the radius
+    // (the usual circle approximation). Straight lines here would be a diamond.
+    let (_, _, _, ell) = convert(json!({"kind": "ellipse", "size": [120, 80]}));
+    assert_eq!(ell.vertices, vec![[0.0, -40.0], [60.0, 0.0], [0.0, 40.0], [-60.0, 0.0]]);
+    let kappa = 4.0 / 3.0 * (std::f64::consts::SQRT_2 - 1.0);
+    for (i, want) in [60.0 * kappa, 40.0 * kappa, 60.0 * kappa, 40.0 * kappa].into_iter().enumerate() {
+        let t = ell.in_tangents[i];
+        assert!((radius(t) - want).abs() < 1e-6, "vertex {i}: tangent {t:?} should be {want}");
+    }
+
+    // A five-point star alternates the outer and inner radius, so ten vertices.
+    let (_, _, _, star) = convert(json!({"kind": "star", "size": [120, 120]}));
+    assert_eq!(star.vertices.len(), 10);
+    for (i, v) in star.vertices.iter().enumerate() {
+        let want = if i % 2 == 0 { 60.0 } else { 30.0 };
+        assert!((radius(*v) - want).abs() < 1e-6, "vertex {i} at {v:?} should be {want} from the centre");
+    }
+
+    // A polygon has one vertex per point, all at the outer radius.
+    let (_, _, _, poly) = convert(json!({"kind": "polygon", "size": [120, 120]}));
+    assert!(poly.vertices.len() >= 3);
+    assert!(poly.vertices.iter().all(|v| (radius(*v) - 60.0).abs() < 1e-6), "{:?}", poly.vertices);
+    assert_ne!(poly.vertices.len(), star.vertices.len(), "a polygon is not a star");
+}
+
+/// The shape's own values are read, not defaults: Roundness rounds the corners and Position moves
+/// the path, both at the time the conversion is made.
+#[test]
+fn convert_to_bezier_reads_the_shape_as_it_is_set() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (uid, _) = first_shape(&s, l);
+    // Properties are addressed by their own uid.
+    let pr_uid = |s: &Session, id: &str| {
+        let ly = layer(s, l);
+        ly.props.sub("contents").unwrap().find_group(uid).unwrap().get(id).unwrap().uid
+    };
+    let (round, pos) = (pr_uid(&s, "roundness"), pr_uid(&s, "position"));
+    s.execute("prop.set", json!({"layer": l, "path": format!("@{round}"), "value": 20.0})).unwrap();
+    s.execute("prop.set", json!({"layer": l, "path": format!("@{pos}"), "value": [10.0, 5.0]})).unwrap();
+
+    s.state.selected_props = vec![(LayerId(l), uid)];
+    s.execute("path.convertToBezier", json!({})).unwrap();
+    let (new_uid, now) = first_shape(&s, l);
+    assert_eq!(now, "path");
+    let path = shape_path_of(&s, l, new_uid);
+
+    // Rounded corners need more than four vertices, and curves between them.
+    assert!(path.vertices.len() > 4, "roundness rounds the corners: {} vertices", path.vertices.len());
+    assert!(path.in_tangents.iter().chain(&path.out_tangents).any(|t| *t != [0.0, 0.0]), "with curves");
+    // Position moves the path: the bounds are centred on it, not on the origin.
+    let xs: Vec<f64> = path.vertices.iter().map(|v| v[0]).collect();
+    let ys: Vec<f64> = path.vertices.iter().map(|v| v[1]).collect();
+    let mid = |v: &[f64]| (v.iter().copied().fold(f64::MAX, f64::min) + v.iter().copied().fold(f64::MIN, f64::max)) / 2.0;
+    assert!((mid(&xs) - 10.0).abs() < 1e-6 && (mid(&ys) - 5.0).abs() < 1e-6, "centred on the position: {:?} {:?}", mid(&xs), mid(&ys));
+}
+
+/// #1896: Convert To Bezier Path reads Per-Corner Roundness, not just the uniform Roundness, so
+/// the editable path is the shape that was on screen.
+#[test]
+fn convert_to_bezier_honours_per_corner_roundness() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (uid, _) = first_shape(&s, l);
+    let uid_of = |s: &Session, id: &str| layer(s, l).props.sub("contents").unwrap().find_group(uid).unwrap().get(id).unwrap().uid;
+    let per_corner = uid_of(&s, "perCorner");
+    let top_left = uid_of(&s, "topLeftRoundness");
+    let bottom_right = uid_of(&s, "bottomRightRoundness");
+    for (u, v) in [(per_corner, json!(true)), (top_left, json!(20.0)), (bottom_right, json!(10.0))] {
+        s.execute("prop.set", json!({"layer": l, "path": format!("@{u}"), "value": v})).unwrap();
+    }
+
+    s.state.selected_props = vec![(LayerId(l), uid)];
+    s.execute("path.convertToBezier", json!({})).unwrap();
+    let (new_uid, now) = first_shape(&s, l);
+    assert_eq!(now, "path");
+    let path = shape_path_of(&s, l, new_uid);
+    let expected = effectz_path::from_kurbo(&effectz_path::rect_radii([120.0, 80.0], [0.0, 0.0], [20.0, 0.0, 10.0, 0.0])).into_iter().next().unwrap();
+    assert_eq!(path, expected, "the converted path has the per-corner geometry");
+}
+
+/// #1896: Convert To Bezier Path evaluates the shape's expressions, so an expression-driven
+/// Per-Corner checkbox and radius convert to the geometry on screen.
+#[test]
+fn convert_to_bezier_evaluates_corner_expressions() {
+    struct Corners;
+    impl effectz_render::ExprHost for Corners {
+        fn eval(
+            &self,
+            _: &effectz_render::EvalCtx,
+            _: &effectz_project::Layer,
+            prop: &effectz_project::Property,
+            value: &KV,
+        ) -> std::result::Result<KV, String> {
+            Ok(match prop.match_id.as_str() {
+                "perCorner" => KV::Bool(true),
+                "topLeftRoundness" => KV::Scalar(20.0),
+                _ => value.clone(),
+            })
+        }
+    }
+
+    let mut s = comp();
+    s.expr = Some(Arc::new(Corners));
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (uid, _) = first_shape(&s, l);
+    let uid_of = |s: &Session, id: &str| layer(s, l).props.sub("contents").unwrap().find_group(uid).unwrap().get(id).unwrap().uid;
+    for (id, expression) in [("perCorner", "true"), ("topLeftRoundness", "20")] {
+        let u = uid_of(&s, id);
+        s.execute("prop.setExpression", json!({"layer": l, "path": format!("@{u}"), "expression": expression})).unwrap();
+    }
+
+    s.state.selected_props = vec![(LayerId(l), uid)];
+    s.execute("path.convertToBezier", json!({})).unwrap();
+    let (new_uid, now) = first_shape(&s, l);
+    assert_eq!(now, "path");
+    let path = shape_path_of(&s, l, new_uid);
+    let expected = effectz_path::from_kurbo(&effectz_path::rect_radii([120.0, 80.0], [0.0, 0.0], [20.0, 0.0, 0.0, 0.0])).into_iter().next().unwrap();
+    assert_eq!(path, expected, "the expression-evaluated corner is converted");
+}
+
+/// The uid of the first shape item with `match_id` in a shape layer's Contents.
+fn shape_item(s: &Session, l: u64, match_id: &str) -> u64 {
+    /// Depth-first search of a property group tree for the uid of the first group with the given match id.
+    fn walk(g: &effectz_project::PropGroup, id: &str) -> Option<u64> {
+        if g.match_id == id {
+            return Some(g.uid);
+        }
+        g.groups().find_map(|c| walk(c, id))
+    }
+    let ly = layer(s, l);
+    let contents = ly.props.sub("contents").unwrap();
+    contents.groups().find_map(|c| walk(c, match_id)).unwrap()
+}
+
+/// #3057: right after drawing with the Rectangle, Ellipse or Polygon tool only the layer is
+/// selected; Convert To Bezier Path then converted nothing and reported "no masks". The selected
+/// shape layer's parametric paths convert, as the masks of a selected layer do, and so do those in
+/// a selected shape group (Rectangle 1 rather than its Rectangle Path 1).
+#[test]
+fn convert_to_bezier_on_a_selected_shape_layer_or_group() {
+    for kind in ["rect", "ellipse", "polygon"] {
+        let mut s = comp();
+        let l = s.execute("layer.newShape", json!({"kind": kind, "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+        assert_eq!(s.state.selected_layers, vec![LayerId(l)], "the new layer is selected");
+        assert!(s.state.selected_props.is_empty(), "and no shape item");
+        let out = s.execute("path.convertToBezier", json!({})).unwrap();
+        assert_eq!(out["paths"].as_u64(), Some(1), "{kind}: {out}");
+        let (new_uid, now) = first_shape(&s, l);
+        assert_eq!(now, "path", "{kind}: the layer's parametric path is a bezier path now");
+        assert_eq!(s.state.selected_props, vec![(LayerId(l), new_uid)], "{kind}: and selected, to edit its vertices");
+    }
+
+    // A selected shape group converts the parametric path inside it.
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let group = shape_item(&s, l, "group");
+    s.state.selected_props = vec![(LayerId(l), group)];
+    let out = s.execute("path.convertToBezier", json!({})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path");
+
+    // Nothing parametric left: the error says what to select instead of asking for masks.
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    let err = s.execute("path.convertToBezier", json!({})).unwrap_err().to_string();
+    assert!(err.contains("Rectangle, Ellipse or Polystar"), "{err}");
+}
+
+/// #3057: a selected shape item with nothing parametric in it (a Fill) does not widen the
+/// conversion to the rest of the layer. A guard for the fix (it passes on the old code too).
+#[test]
+fn convert_to_bezier_does_not_widen_a_selected_fill() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80], "fill": "#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+    let fill = shape_item(&s, l, "fill");
+    s.state.selected_props = vec![(LayerId(l), fill)];
+    assert!(s.execute("path.convertToBezier", json!({})).is_err());
+    assert_eq!(first_shape(&s, l).1, "rect", "the rectangle stays parametric");
+}
+
+/// #3057: a selected shape layer's plain masks are already Bezier paths, so they don't hide its
+/// rectangle: the rectangle converts. A RotoBezier mask still converts first.
+#[test]
+fn convert_to_bezier_on_a_shape_layer_with_a_plain_mask() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("mask.new", json!({"layer": l, "vertices": [[0, 0], [50, 0], [50, 50], [0, 50]], "closed": true})).unwrap();
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    s.state.selected_vertices.clear();
+    let out = s.execute("path.convertToBezier", json!({})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path");
+
+    // Nothing parametric left and the mask is plain: say so rather than succeed doing nothing.
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    s.state.selected_vertices.clear();
+    let err = s.execute("path.convertToBezier", json!({})).unwrap_err().to_string();
+    assert!(err.contains("already Bezier"), "{err}");
+}
+
+/// #3057: an explicit `mask` that matches no mask converts nothing, rather than every parametric
+/// path of the layer.
+#[test]
+fn convert_to_bezier_with_an_unmatched_mask_converts_nothing() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    assert!(s.execute("path.convertToBezier", json!({"layer": l, "mask": "No Such Mask"})).is_err());
+    assert_eq!(first_shape(&s, l).1, "rect", "the rectangle stays parametric");
+}
+
+/// #3057: an explicit `layer` is the layer converted, even with a path selected on another one.
+#[test]
+fn convert_to_bezier_follows_an_explicit_layer() {
+    let mut s = comp();
+    let a = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let b = s.execute("layer.newShape", json!({"kind": "ellipse", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (a_rect, _) = first_shape(&s, a);
+    s.state.selected_props = vec![(LayerId(a), a_rect)];
+    let out = s.execute("path.convertToBezier", json!({"layer": b})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, b).1, "path", "the given layer converts");
+    assert_eq!(first_shape(&s, a).1, "rect", "the selection on another layer does not");
+}
+
+/// #3057: converting a selected layer leaves an animated parametric path alone (its animation
+/// would be lost) and reports it; selecting that path converts it at the current time, as After
+/// Effects does.
+#[test]
+fn convert_to_bezier_skips_animated_paths_of_a_selected_layer() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (rect, _) = first_shape(&s, l);
+    let size = layer(&s, l).props.sub("contents").unwrap().find_group(rect).unwrap().get("size").unwrap().uid;
+    for (t, v) in [(0.0, [120.0, 80.0]), (1.0, [200.0, 100.0])] {
+        s.execute("prop.addKey", json!({"layer": l, "path": format!("@{size}"), "time": t, "value": v})).unwrap();
+    }
+    s.execute("layer.select", json!({"layers": [l]})).unwrap();
+    let err = s.execute("path.convertToBezier", json!({})).unwrap_err().to_string();
+    assert!(err.contains("animated"), "{err}");
+    assert_eq!(first_shape(&s, l).1, "rect", "the animated rectangle stays parametric");
+
+    s.state.selected_props = vec![(LayerId(l), rect)];
+    let out = s.execute("path.convertToBezier", json!({})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path", "the selected path converts");
+}
+
+/// #3057 review: a layer named twice in `layers` (by id and by name) converts once, and its
+/// animated paths are counted once.
+#[test]
+fn convert_to_bezier_with_a_layer_named_twice() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let name = layer(&s, l).name;
+    let out = s.execute("path.convertToBezier", json!({"layers": [l, name, l]})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(out["of"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path");
+
+    let mut s = comp();
+    let a = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let b = s.execute("layer.newShape", json!({"kind": "ellipse", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (rect, _) = first_shape(&s, a);
+    let size = layer(&s, a).props.sub("contents").unwrap().find_group(rect).unwrap().get("size").unwrap().uid;
+    for (t, v) in [(0.0, [120.0, 80.0]), (1.0, [200.0, 100.0])] {
+        s.execute("prop.addKey", json!({"layer": a, "path": format!("@{size}"), "time": t, "value": v})).unwrap();
+    }
+    s.execute("layer.select", json!({"layers": [b]})).unwrap();
+    let out = s.execute("path.convertToBezier", json!({"layers": [a, a, b]})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(out["skippedAnimated"].as_u64(), Some(1), "{out}");
+}
+
+/// #3057 review: shape items on a locked layer don't convert, whether given as `items` or
+/// selected; unlocked, they do.
+#[test]
+fn convert_to_bezier_leaves_a_locked_layer_alone() {
+    for explicit in [true, false] {
+        let mut s = comp();
+        let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+        let (rect, _) = first_shape(&s, l);
+        let lock = |s: &mut Session, v: bool| {
+            s.execute("layer.setSwitch", json!({"layers": [l], "switch": "locked", "value": v})).unwrap();
+        };
+        let run = |s: &mut Session| {
+            if explicit {
+                s.execute("path.convertToBezier", json!({"layer": l, "items": [rect]}))
+            } else {
+                s.state.selected_props = vec![(LayerId(l), rect)];
+                s.execute("path.convertToBezier", json!({}))
+            }
+        };
+        lock(&mut s, true);
+        let err = run(&mut s).unwrap_err().to_string();
+        assert!(err.contains("locked"), "explicit {explicit}: {err}");
+        assert_eq!(first_shape(&s, l).1, "rect", "explicit {explicit}: the locked rectangle stays parametric");
+        lock(&mut s, false);
+        let out = run(&mut s).unwrap();
+        assert_eq!(out["paths"].as_u64(), Some(1), "explicit {explicit}: {out}");
+        assert_eq!(first_shape(&s, l).1, "path");
+    }
+}
+
+/// #3057 review: a selected group leaves its animated paths alone and reports them, as
+/// converting a whole layer does; the path itself, selected, still converts.
+#[test]
+fn convert_to_bezier_skips_animated_paths_of_a_selected_group() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (rect, _) = first_shape(&s, l);
+    let group = shape_item(&s, l, "group");
+    let size = layer(&s, l).props.sub("contents").unwrap().find_group(rect).unwrap().get("size").unwrap().uid;
+    s.execute("prop.setExpression", json!({"layer": l, "path": format!("@{size}"), "expression": "[100, 100]"})).unwrap();
+
+    s.state.selected_props = vec![(LayerId(l), group)];
+    let err = s.execute("path.convertToBezier", json!({})).unwrap_err().to_string();
+    assert!(err.contains("animated"), "{err}");
+    assert_eq!(first_shape(&s, l).1, "rect", "the expression-driven rectangle stays parametric");
+
+    // The group and its path both selected: the path is converted, not skipped.
+    s.state.selected_props = vec![(LayerId(l), group), (LayerId(l), rect)];
+    let out = s.execute("path.convertToBezier", json!({})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(out["skippedAnimated"].as_u64(), Some(0), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path");
+}
+
+/// #3057 review: an explicit `mask` is what converts, even with a parametric path selected or
+/// `items` given; a `mask` that matches nothing is an error and converts no shape.
+#[test]
+fn convert_to_bezier_gives_an_explicit_mask_priority() {
+    // A shape layer with a rectangle and a RotoBezier mask; the rectangle's path is selected.
+    let setup = || {
+        let mut s = comp();
+        let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("mask.new", json!({"layer": l, "vertices": [[0, 0], [50, 0], [50, 50], [0, 50]], "closed": true})).unwrap();
+        let m = layer(&s, l).masks().unwrap().groups().next().unwrap().uid;
+        s.execute("path.rotoBezier", json!({"layer": l, "mask": m, "value": true})).unwrap();
+        let (rect, _) = first_shape(&s, l);
+        s.state.selected_props = vec![(LayerId(l), rect)];
+        (s, l, m, rect)
+    };
+
+    // A matching mask converts, not the selected rectangle.
+    let (mut s, l, m, _) = setup();
+    s.execute("path.convertToBezier", json!({"layer": l, "mask": m})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: false, .. }), "the mask converts");
+    assert_eq!(first_shape(&s, l).1, "rect", "the selected rectangle stays parametric");
+
+    // An unmatched mask is an error, and the selected rectangle is not converted in its place.
+    let (mut s, l, _, _) = setup();
+    let err = s.execute("path.convertToBezier", json!({"layer": l, "mask": "No Such Mask"})).unwrap_err().to_string();
+    assert!(err.contains("mask"), "{err}");
+    assert_eq!(first_shape(&s, l).1, "rect");
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }));
+
+    // `mask` and `items` together: the mask converts, the items don't.
+    let (mut s, l, m, rect) = setup();
+    s.state.selected_props.clear();
+    s.execute("path.convertToBezier", json!({"layer": l, "mask": m, "items": [rect]})).unwrap();
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: false, .. }), "the mask converts");
+    assert_eq!(first_shape(&s, l).1, "rect", "the listed rectangle stays parametric");
+}
+
+/// #3057 review: a selected mask and a selected parametric path both convert, in one undo step;
+/// neither is dropped for the other.
+#[test]
+fn convert_to_bezier_converts_a_selected_mask_and_path_together() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("mask.new", json!({"layer": l, "vertices": [[0, 0], [50, 0], [50, 50], [0, 50]], "closed": true})).unwrap();
+    let m = layer(&s, l).masks().unwrap().groups().next().unwrap().uid;
+    s.execute("path.rotoBezier", json!({"layer": l, "mask": m, "value": true})).unwrap();
+    let (rect, _) = first_shape(&s, l);
+    s.state.selected_vertices.clear();
+    s.state.selected_props = vec![(LayerId(l), m), (LayerId(l), rect)];
+
+    let out = s.execute("path.convertToBezier", json!({})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert_eq!(out["masks"].as_u64(), Some(1), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path", "the rectangle converts");
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: false, .. }), "and so does the mask");
+
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(first_shape(&s, l).1, "rect", "one undo restores the rectangle");
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }), "and the mask");
+}
+
+/// #3057 review: explicit `items` convert only those shape paths; a RotoBezier mask that happens to
+/// be selected on the same layer is not converted along with them.
+#[test]
+fn convert_to_bezier_with_explicit_items_leaves_a_selected_mask_alone() {
+    let mut s = comp();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("mask.new", json!({"layer": l, "vertices": [[0, 0], [50, 0], [50, 50], [0, 50]], "closed": true})).unwrap();
+    let m = layer(&s, l).masks().unwrap().groups().next().unwrap().uid;
+    s.execute("path.rotoBezier", json!({"layer": l, "mask": m, "value": true})).unwrap();
+    let (rect, _) = first_shape(&s, l);
+    s.state.selected_vertices.clear();
+    s.state.selected_props = vec![(LayerId(l), m)];
+    let out = s.execute("path.convertToBezier", json!({"layer": l, "items": [rect]})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    assert!(out.get("masks").is_none_or(|v| v.as_u64().unwrap_or(0) == 0), "{out}");
+    assert_eq!(first_shape(&s, l).1, "path", "the listed rectangle converts");
+    assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }), "the selected mask is unchanged");
+}
+
+/// #3057 review: explicit `items` with nothing parametric in them (a Fill, a path that is already
+/// Bezier) are an error and change nothing: neither a selected RotoBezier mask nor, with no mask
+/// selected, the layer's own RotoBezier masks are converted in their place.
+#[test]
+fn convert_to_bezier_with_explicit_non_parametric_items_converts_no_mask() {
+    for item in ["fill", "path"] {
+        for mask_selected in [true, false] {
+            let mut s = comp();
+            let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80], "fill": "#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+            s.execute("mask.new", json!({"layer": l, "vertices": [[0, 0], [50, 0], [50, 50], [0, 50]], "closed": true})).unwrap();
+            let m = layer(&s, l).masks().unwrap().groups().next().unwrap().uid;
+            s.execute("path.rotoBezier", json!({"layer": l, "mask": m, "value": true})).unwrap();
+            let (rect, _) = first_shape(&s, l);
+            s.state.selected_vertices.clear();
+            s.state.selected_props.clear();
+            // An already-Bezier path: the rectangle converted first, the mask left as it is.
+            if item == "path" {
+                s.execute("path.convertToBezier", json!({"layer": l, "items": [rect]})).unwrap();
+                assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }));
+            }
+            let uid = shape_item(&s, l, item);
+            s.state.selected_vertices.clear();
+            s.state.selected_props = if mask_selected { vec![(LayerId(l), m)] } else { Vec::new() };
+            let before = layer(&s, l).props;
+
+            let err = s.execute("path.convertToBezier", json!({"layer": l, "items": [uid]})).unwrap_err().to_string();
+            assert!(err.contains("Rectangle, Ellipse or Polystar"), "{item}, mask selected {mask_selected}: {err}");
+            assert!(matches!(mask_kind(&s, l), GroupKind::Mask { roto_bezier: true, .. }), "{item}, mask selected {mask_selected}: the mask is unchanged");
+            assert!(layer(&s, l).props == before, "{item}, mask selected {mask_selected}: no shape or mask changed");
+        }
+    }
+}
+
+/// #3057 review: an explicit `layer` scopes the mask conversion too: a RotoBezier mask selected
+/// on another layer is left alone, and the given layer's masks convert.
+#[test]
+fn convert_to_bezier_keeps_masks_to_an_explicit_layer() {
+    let mut s = comp();
+    let (a, _) = masked(&mut s);
+    let (b, mb) = masked(&mut s);
+    for l in [a, b] {
+        s.state.selected_props.clear();
+        s.state.selected_vertices.clear();
+        s.execute("path.rotoBezier", json!({"layer": l, "value": true})).unwrap();
+    }
+    assert!(matches!(mask_kind(&s, a), GroupKind::Mask { roto_bezier: true, .. }));
+    assert!(matches!(mask_kind(&s, b), GroupKind::Mask { roto_bezier: true, .. }));
+    s.state.selected_vertices.clear();
+    s.state.selected_props = vec![(LayerId(b), mb)];
+
+    let out = s.execute("path.convertToBezier", json!({"layer": a})).unwrap();
+    assert_eq!(out["masks"].as_u64(), Some(1), "{out}");
+    assert!(matches!(mask_kind(&s, a), GroupKind::Mask { roto_bezier: false, .. }), "the given layer's mask converts");
+    assert!(matches!(mask_kind(&s, b), GroupKind::Mask { roto_bezier: true, .. }), "the mask selected on another layer does not");
+}
+
+/// #3057 review: a RotoBezier mask on a locked layer stays as it is, given as the layer or
+/// selected, and removing it as a target does not hand the conversion to another layer's mask.
+#[test]
+fn convert_to_bezier_leaves_a_locked_layers_masks_alone() {
+    let mut s = comp();
+    let (a, ma) = masked(&mut s);
+    let (b, _) = masked(&mut s);
+    for l in [a, b] {
+        s.state.selected_props.clear();
+        s.state.selected_vertices.clear();
+        s.execute("path.rotoBezier", json!({"layer": l, "value": true})).unwrap();
+    }
+    s.execute("layer.setSwitch", json!({"layers": [a], "switch": "locked", "value": true})).unwrap();
+    let roto = |s: &Session, l: u64| matches!(mask_kind(s, l), GroupKind::Mask { roto_bezier: true, .. });
+
+    // The locked layer given explicitly.
+    s.state.selected_props.clear();
+    s.state.selected_vertices.clear();
+    let err = s.execute("path.convertToBezier", json!({"layer": a})).unwrap_err().to_string();
+    assert!(err.contains("locked"), "{err}");
+    assert!(roto(&s, a), "the locked layer's mask stays RotoBezier");
+
+    // Its mask selected, with the unlocked layer in scope too: B's mask is not converted instead.
+    s.state.selected_props = vec![(LayerId(a), ma)];
+    let err = s.execute("path.convertToBezier", json!({"layers": [a, b]})).unwrap_err().to_string();
+    assert!(err.contains("locked"), "{err}");
+    assert!(roto(&s, a) && roto(&s, b), "neither mask converts");
+}
+
+/// #3057 review: an explicit `comp` that is not the active composition is where `items` and
+/// `mask` are looked up and converted.
+#[test]
+fn convert_to_bezier_in_a_composition_that_is_not_active() {
+    let mut s = comp();
+    let main = s.active_comp_id().unwrap();
+    let l = s.execute("layer.newShape", json!({"kind": "rect", "size": [120, 80]})).unwrap()["layer"].as_u64().unwrap();
+    let (rect, _) = first_shape(&s, l);
+    let (solid, m) = masked(&mut s);
+    s.state.selected_props.clear();
+    s.state.selected_vertices.clear();
+    s.execute("path.rotoBezier", json!({"layer": solid, "value": true})).unwrap();
+    s.execute("comp.new", json!({"name": "Other", "width": 400, "height": 300, "frameRate": 30, "duration": 4})).unwrap();
+    assert_ne!(s.active_comp_id(), Some(main), "another composition is active");
+    let in_main = |s: &Session| s.project.comp(main).unwrap().clone();
+    let main_mask_roto = |s: &Session| {
+        let c = in_main(s);
+        matches!(c.layer(LayerId(solid)).unwrap().masks().unwrap().find_group(m).unwrap().kind, GroupKind::Mask { roto_bezier: true, .. })
+    };
+
+    // Explicit shape items.
+    let out = s.execute("path.convertToBezier", json!({"comp": main.0, "layer": l, "items": [rect]})).unwrap();
+    assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+    let c = in_main(&s);
+    let contents = c.layer(LayerId(l)).unwrap().props.sub("contents").unwrap();
+    assert!(contents.find_group(rect).is_none(), "the rectangle is replaced in that composition");
+
+    // An explicit mask.
+    assert!(main_mask_roto(&s));
+    s.execute("path.convertToBezier", json!({"comp": main.0, "layer": solid, "mask": m})).unwrap();
+    assert!(!main_mask_roto(&s), "the mask converts in that composition");
+}
+
+/// #3057: parametric paths in nested groups convert from the layer and from the outer group.
+#[test]
+fn convert_to_bezier_finds_paths_in_nested_groups() {
+    for select_outer in [false, true] {
+        let mut s = comp();
+        let l = s.execute("layer.newShape", json!({"kind": "star", "size": [120, 120]})).unwrap()["layer"].as_u64().unwrap();
+        let inner = shape_item(&s, l, "group");
+        s.state.selected_props = vec![(LayerId(l), inner)];
+        s.execute("path.groupShapes", json!({})).unwrap();
+        let outer = shape_item(&s, l, "group");
+        assert_ne!(outer, inner, "the shape is nested one group deeper");
+        if select_outer {
+            s.state.selected_props = vec![(LayerId(l), outer)];
+        } else {
+            s.execute("layer.select", json!({"layers": [l]})).unwrap();
+        }
+        let out = s.execute("path.convertToBezier", json!({})).unwrap();
+        assert_eq!(out["paths"].as_u64(), Some(1), "{out}");
+        assert_eq!(first_shape(&s, l).1, "path");
+    }
+}
+
+/// #2201: a viewer drag on the free-transform box sends one `path.freeTransform` per frame with a
+/// shared merge key; one undo must revert the whole drag, not the last frame.
+#[test]
+fn free_transform_drag_undoes_in_one_step() {
+    let mut s = comp();
+    let (l, m) = masked(&mut s);
+    s.state.selected_vertices.clear();
+    let before = mask_path(&s, l, m);
+    for k in [90, 90, 90, 90] {
+        s.execute("path.freeTransform", json!({"layer": l, "scale": k, "merge": "viewer-drag-1"})).unwrap();
+    }
+    let after = mask_path(&s, l, m);
+    assert_ne!(after, before);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(mask_path(&s, l, m), before, "one undo reverts the whole drag");
+    s.execute("edit.redo", json!({})).unwrap();
+    assert_eq!(mask_path(&s, l, m), after, "redo restores the whole drag");
+}
+
+fn bounds(p: &effectz_keyframe::ShapePath) -> ([f64; 2], [f64; 2]) {
+    let lo = p.vertices.iter().fold([f64::MAX; 2], |a, v| [a[0].min(v[0]), a[1].min(v[1])]);
+    let hi = p.vertices.iter().fold([f64::MIN; 2], |a, v| [a[0].max(v[0]), a[1].max(v[1])]);
+    (lo, hi)
+}
+
+#[test]
+fn rounded_mask_roundness_is_set_on_creation_and_editable() {
+    let mut s = comp();
+    let l = s.execute("layer.newSolid", json!({"color": "#ffffff", "width": 400, "height": 300})).unwrap()["layer"].as_u64().unwrap();
+    // A 20 px radius by default; an explicit radius moves the first vertex.
+    let m = s.execute("layer.addMask", json!({"layer": l, "shape": "rounded", "rect": [100, 100, 200, 100]})).unwrap()["mask"].as_u64().unwrap();
+    let default = mask_path(&s, l, m);
+    assert_eq!(default.vertices[0], [300.0, 120.0]);
+    let m2 =
+        s.execute("layer.addMask", json!({"layer": l, "shape": "rounded", "rect": [100, 100, 200, 100], "roundness": 30})).unwrap()["mask"].as_u64().unwrap();
+    assert_eq!(mask_path(&s, l, m2).vertices[0], [300.0, 130.0]);
+    assert!(s.execute("layer.addMask", json!({"layer": l, "shape": "ellipse", "roundness": 5})).is_err());
+    assert!(s.execute("layer.addMask", json!({"layer": l, "shape": "rounded", "roundness": -1})).is_err());
+    // Edit it afterwards: same box, new radius; 0 is a plain rectangle; undo restores.
+    s.execute("mask.setRoundness", json!({"layer": l, "mask": m, "roundness": 50})).unwrap();
+    let p = mask_path(&s, l, m);
+    assert_eq!(p.vertices[0], [300.0, 150.0]);
+    assert_eq!(bounds(&p), ([100.0, 100.0], [300.0, 200.0]));
+    s.execute("mask.setRoundness", json!({"layer": l, "mask": m, "roundness": 0})).unwrap();
+    let p = mask_path(&s, l, m);
+    assert_eq!(p.vertices.len(), 4);
+    assert_eq!(bounds(&p), ([100.0, 100.0], [300.0, 200.0]));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(mask_path(&s, l, m).vertices[0], [300.0, 150.0]);
+}
+
+#[test]
+fn set_roundness_refuses_what_is_not_a_rectangle() {
+    let mut s = comp();
+    let l = s.execute("layer.newSolid", json!({"color": "#ffffff", "width": 400, "height": 300})).unwrap()["layer"].as_u64().unwrap();
+    let star = s.execute("layer.addMask", json!({"layer": l, "shape": "star"})).unwrap()["mask"].as_u64().unwrap();
+    let before = mask_path(&s, l, star);
+    assert!(s.execute("mask.setRoundness", json!({"layer": l, "mask": star, "roundness": 10})).is_err());
+    assert_eq!(mask_path(&s, l, star), before, "a refused edit leaves the mask alone");
+    assert!(s.execute("mask.setRoundness", json!({"layer": l, "mask": star})).is_err(), "needs a roundness");
+    // A diamond inscribed in its box touches every edge but is not a rectangle.
+    s.execute("mask.new", json!({"layer": l, "vertices": [[150, 100], [200, 150], [150, 200], [100, 150]], "closed": true})).unwrap();
+    let diamond = layer(&s, l).masks().unwrap().groups().last().unwrap().uid;
+    assert!(s.execute("mask.setRoundness", json!({"layer": l, "mask": diamond, "roundness": 10})).is_err());
+    assert_eq!(mask_path(&s, l, diamond).vertices.len(), 4);
+    // "roundness": null is unset, and an unknown shape is reported as such.
+    s.execute("layer.addMask", json!({"layer": l, "shape": "rounded", "roundness": null})).unwrap();
+    let e = s.execute("layer.addMask", json!({"layer": l, "shape": "foo", "roundness": 5})).unwrap_err().to_string();
+    assert!(e.contains("unknown shape"), "{e}");
+}
+
+#[test]
+fn set_roundness_refuses_an_ellipse_and_keeps_feather_points_and_keys_in_step() {
+    let mut s = comp();
+    let l = s.execute("layer.newSolid", json!({"color": "#ffffff", "width": 400, "height": 300})).unwrap()["layer"].as_u64().unwrap();
+    let add = |s: &mut Session, shape: &str, rect: [u32; 4], extra: serde_json::Value| {
+        let mut p = json!({"layer": l, "shape": shape, "rect": rect});
+        if let (Some(p), Some(e)) = (p.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        s.execute("layer.addMask", p).unwrap()["mask"].as_u64().unwrap()
+    };
+    // An ellipse (or a circle) has its four vertices on its box's edges and curved sides, but it
+    // is not a rectangle: refused, unchanged.
+    for rect in [[100, 100, 200, 100], [100, 100, 100, 100]] {
+        let e = add(&mut s, "ellipse", rect, json!({}));
+        let before = mask_path(&s, l, e);
+        assert!(s.execute("mask.setRoundness", json!({"layer": l, "mask": e, "roundness": 10})).is_err(), "{rect:?}");
+        assert_eq!(mask_path(&s, l, e), before);
+    }
+    // A feather point on the top side survives a rounded-to-rounded edit, still on the top side.
+    let m = add(&mut s, "rounded", [100, 100, 200, 100], json!({"roundness": 30}));
+    s.execute("mask.featherPoint.add", json!({"layer": l, "mask": m, "point": [200, 90]})).unwrap();
+    let on_top = |p: &effectz_keyframe::ShapePath| {
+        let f = &p.feather[0];
+        let n = p.vertices.len();
+        p.vertices[f.segment % n][1] == 100.0 && p.vertices[(f.segment + 1) % n][1] == 100.0
+    };
+    assert!(on_top(&mask_path(&s, l, m)));
+    s.execute("mask.setRoundness", json!({"layer": l, "mask": m, "roundness": 50})).unwrap();
+    let p = mask_path(&s, l, m);
+    assert_eq!((p.vertices.len(), p.feather.len()), (8, 1));
+    assert!(on_top(&p), "{p:?}");
+    // Square corners would drop four vertices under the feather point: refused.
+    assert!(s.execute("mask.setRoundness", json!({"layer": l, "mask": m, "roundness": 0})).is_err());
+    assert_eq!(mask_path(&s, l, m), p);
+    // A keyed path: a rounded one is re-rounded with its vertex count kept, so its keys still
+    // interpolate; a square one can't gain the corner vertices on one key only.
+    let keys = |s: &Session, m: u64| -> Vec<usize> {
+        let g = layer(s, l).masks().unwrap().find_group(m).unwrap().clone();
+        g.get("path").unwrap().keys.iter().map(|k| k.value.as_path().unwrap().vertices.len()).collect()
+    };
+    let r = add(&mut s, "rounded", [100, 100, 200, 100], json!({"roundness": 20}));
+    let q = add(&mut s, "rect", [100, 100, 200, 100], json!({}));
+    for (i, mask) in [(4, r), (5, q)] {
+        s.execute("time.set", json!({"time": 0})).unwrap();
+        s.execute("prop.addKey", json!({"layer": l, "path": format!("masks/#{i}/path"), "time": 0.0})).unwrap();
+        s.execute("time.set", json!({"time": 1})).unwrap();
+        let ok = s.execute("mask.setRoundness", json!({"layer": l, "mask": mask, "roundness": 40})).is_ok();
+        assert_eq!(ok, mask == r);
+    }
+    assert_eq!(keys(&s, r), [8, 8]);
+    assert_eq!(keys(&s, q), [4]);
+}

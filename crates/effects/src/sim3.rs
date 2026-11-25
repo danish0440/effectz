@@ -1,4 +1,4 @@
-//! Simulation: Particle Playground and CC Hair.
+//! Simulation: Particle Playground and Surface Fibers.
 //!
 //! **Particle Playground** is a deterministic 2D particle system stepped from layer time 0 at
 //! [`SPS`] steps per second through [`SimCache`] (seeking anywhere gives the same frame as
@@ -17,7 +17,7 @@
 //! being rendered (their pixels are part of the cache key). Particles replace the layer's own
 //! pixels, as in After Effects.
 //!
-//! **CC Hair** grows strands from the layer's opaque pixels (Density per 1 000 px²), each a
+//! **Surface Fibers** grows strands from the layer's opaque pixels (Density per 1 000 px²), each a
 //! quadratic curve of Length that droops with Weight, optionally steered and scaled by a hairfall
 //! map layer (luminance → length, horizontal/vertical gradient → lean), and shades them with a
 //! Kajiya–Kay-style strand model (diffuse ∝ sin(tangent, light), specular from the half vector).
@@ -27,8 +27,8 @@ use effectz_project::ParamUi;
 use effectz_raster::{Image, Px};
 use rayon::prelude::*;
 
-use crate::sim::{Acc, Post, SPS, Shape, Sprite, SpritePlan, Tint, combine, splat, steps_at};
-use crate::util::{SimCache, hash1, params_key, point_in_poly, unpremul};
+use crate::sim::{Acc, Post, ProducerPath, SPS, Shape, Sprite, SpritePlan, Tint, combine, splat, steps_at};
+use crate::util::{SimCache, hash1, params_key_except, point_in_poly, unpremul};
 use crate::{Buf, EffectCtx, EffectSpec, col, num, p, popup, slider};
 
 fn spec(id: &'static str, name: &'static str, params: Vec<crate::ParamSpec>, render: crate::RenderFn) -> EffectSpec {
@@ -108,6 +108,8 @@ pub struct PgState {
     pub parts: Vec<PgParticle>,
     carry: f64,
     next_id: u32,
+    /// Fingerprint of the producer positions of the steps so far.
+    producer_hist: u64,
 }
 
 /// A map layer sampled in layer coordinates.
@@ -346,7 +348,6 @@ impl Mapper {
 struct Pg {
     // Cannon
     cannon: bool,
-    pos: [f32; 2],
     barrel_angle: f32,
     barrel_radius: f32,
     rate: f64,
@@ -380,7 +381,8 @@ struct Pg {
 }
 
 impl Pg {
-    fn spawn(&self, id: u32) -> PgParticle {
+    /// Spawn a cannon particle at `producer` (the cannon's position during its birth step).
+    fn spawn_at(&self, id: u32, producer: [f32; 2]) -> PgParticle {
         let s = self.seed;
         let h = |k: u32| hash1(id, k, s) * 2.0 - 1.0;
         // AE angles: 0° = up, clockwise.
@@ -395,12 +397,18 @@ impl Pg {
             let (a, rr) = (hash1(id, 5, s) * std::f32::consts::TAU, hash1(id, 6, s).sqrt() * -r);
             [a.cos() * rr, a.sin() * rr]
         };
-        let p = [self.pos[0] + off[0], self.pos[1] + off[1]];
+        let p = [producer[0] + off[0], producer[1] + off[1]];
         let mut q = PgParticle::new(p, [d[0] * speed, d[1] * speed], self.color, self.radius, id, SRC_CANNON);
         if !self.cannon_text.is_empty() {
             q.ch = self.cannon_text[id as usize % self.cannon_text.len()] as u32;
         }
         q
+    }
+
+    /// Spawn a cannon particle at the origin (the tests' reference).
+    #[cfg(test)]
+    fn spawn(&self, id: u32) -> PgParticle {
+        self.spawn_at(id, [0.0; 2])
     }
 
     /// The particle as the ephemeral mapper sees it this step (unchanged without one).
@@ -412,7 +420,8 @@ impl Pg {
         e
     }
 
-    fn step(&self, st: &mut PgState) {
+    /// Advance the simulation one step, using `producer` for particles born in that step.
+    fn step_at(&self, st: &mut PgState, producer: [f32; 2]) {
         let dt = (1.0 / SPS) as f32;
         let s = self.seed;
         // Persistent Property Mapper: the mapped values stay with the particle.
@@ -534,17 +543,35 @@ impl Pg {
                 }
                 let id = st.next_id;
                 st.next_id = st.next_id.wrapping_add(1);
-                let mut q = self.spawn(id);
+                let mut q = self.spawn_at(id, producer);
                 // Sub-step birth offset keeps streams smooth.
                 let frac = hash1(id, 9, s) * dt;
                 q.p = [q.p[0] + q.v[0] * frac, q.p[1] + q.v[1] * frac];
                 st.parts.push(q);
             }
         }
+        st.producer_hist = crate::psim::producer_hash_step(st.producer_hist, [producer[0], producer[1], 0.0]);
+    }
+
+    /// Advance one step with the origin as its producer (the tests' reference).
+    #[cfg(test)]
+    fn step(&self, st: &mut PgState) {
+        self.step_at(st, [0.0; 2]);
     }
 }
 
 static PG_CACHE: SimCache<PgState> = SimCache::new(6);
+
+/// The cannon's position history is sampled in layer pixels, not in the shared systems'
+/// height-relative coordinates.
+const PG_PRODUCER: ProducerPath = ProducerPath::Point { id: "cannon/cannonPosition", by_height: false };
+
+/// The simulation key without the cannon's current position: its history is fingerprinted
+/// separately, so moving the cannon does not make every simulation restart.
+fn pg_key(ctx: &EffectCtx) -> u64 {
+    let skip = PG_PRODUCER.cache_skips();
+    params_key_except(ctx, &Buf { img: Image::new(0, 0), offset: [0.0; 2], scale: 1.0 }, 0x7067, &skip)
+}
 
 fn image_key(img: &Image) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -575,7 +602,8 @@ fn mapper_from(ctx: &EffectCtx, group: &str, ephemeral: bool) -> Option<Mapper> 
 
 /// Draw a map layer frame as a particle: centred on (x, y) buffer px, rotated `angle` degrees
 /// and scaled, over `out`.
-fn blit_layer(out: &mut Image, lp: &crate::LayerPixels, x: f64, y: f64, angle: f64, scale: [f64; 2], buf_scale: f64, alpha: f32) {
+fn blit_layer(out: &mut Image, lp: &crate::LayerPixels, position: [f64; 2], angle: f64, scale: [f64; 2], buf_scale: f64, alpha: f32) {
+    let [x, y] = position;
     let (w, h) = (lp.size[0] * scale[0].abs() * buf_scale, lp.size[1] * scale[1].abs() * buf_scale);
     let r = (w * w + h * h).sqrt() * 0.5 + 1.0;
     let (x0, x1) = ((x - r).floor().max(0.0) as i64, (x + r).ceil().min(out.width as f64) as i64);
@@ -614,7 +642,6 @@ fn pg_of(ctx: &EffectCtx) -> Pg {
     let ephemeral = mapper_from(ctx, "ephemeralPropertyMapper", true);
     Pg {
         cannon: pr.b("cannonEnabled"),
-        pos: { pr.v2("cannon/cannonPosition").map(|v| v as f32) },
         barrel_angle: pr.f("cannon/barrelAngle") as f32,
         barrel_radius: pr.f("cannon/barrelRadius") as f32,
         rate: pr.f("cannon/particlesPerSecond").max(0.0),
@@ -664,12 +691,14 @@ impl Affects {
 }
 
 /// Particle Playground cannons with gravity only, simulated by the host's particle backend.
-fn pg_accelerated(ctx: &EffectCtx, key: u64, pg: &Pg) -> Option<std::sync::Arc<PgState>> {
+fn pg_accelerated(ctx: &EffectCtx, key: u64, pg: &Pg, producers: &[[f32; 3]]) -> Option<std::sync::Arc<PgState>> {
     let backend = ctx.env.host?.particles()?;
     let steps = steps_at(ctx.time);
+    if producers.len() < usize::try_from(steps).ok()? {
+        return None;
+    }
     let births = crate::psim::births(pg.rate, steps, 60_000)?;
     let desc = crate::psim::CannonDesc {
-        pos: pg.pos,
         barrel_angle: pg.barrel_angle,
         barrel_radius: pg.barrel_radius,
         dir_spread: pg.dir_spread,
@@ -680,19 +709,22 @@ fn pg_accelerated(ctx: &EffectCtx, key: u64, pg: &Pg) -> Option<std::sync::Arc<P
         seed: pg.seed,
         bounds: pg.bounds,
     };
-    let req = crate::psim::SimRequest { key, steps, births: &births, system: crate::psim::ParticleSystem::Cannon(desc) };
+    let req = crate::psim::SimRequest { key, steps, births: &births, producers, system: crate::psim::ParticleSystem::Cannon(desc) };
     let parts = backend.simulate(&req)?;
-    Some(std::sync::Arc::new(PgState {
-        parts: parts
-            .into_iter()
-            .map(|q| {
-                let born = pg.spawn(q.id);
-                PgParticle { p: [q.p[0], q.p[1]], v: [q.v[0], q.v[1]], ..born }
-            })
-            .collect(),
-        carry: 0.0,
-        next_id: births.len() as u32,
-    }))
+    let parts = parts
+        .into_iter()
+        .map(|q| {
+            let birth = *births.get(q.id as usize)?;
+            let producer = *producers.get(birth as usize)?;
+            // The GPU returns the particle's actual position; use its birth step for the
+            // particle's birth metadata (origin, colour, radius and text).
+            let mut born = pg.spawn_at(q.id, [producer[0], producer[1]]);
+            born.p = [q.p[0], q.p[1]];
+            born.v = [q.v[0], q.v[1]];
+            Some(born)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(std::sync::Arc::new(PgState { parts, carry: 0.0, next_id: births.len() as u32, producer_hist: crate::psim::producer_hash(producers, steps) }))
 }
 
 /// The live particles of a Particle Playground whose cannon is the only producer and force
@@ -706,8 +738,19 @@ pub fn playground_state(ctx: &EffectCtx) -> Option<Vec<crate::psim::SimParticle>
     if !pg.cannon_only() || grid || exploder {
         return None;
     }
-    let key = params_key(ctx, &Buf { img: Image::new(0, 0), offset: [0.0; 2], scale: 1.0 }, 0x7067);
-    let st = pg_accelerated(ctx, key, &pg).unwrap_or_else(|| PG_CACHE.run(key, steps_at(ctx.time), PgState::default, |st, _| pg.step(st)));
+    let producers = PG_PRODUCER.history(ctx);
+    let producer_prefix = crate::psim::producer_prefixes(&producers);
+    let key = pg_key(ctx);
+    let producer = |i: u64| producers.get(i as usize).map(|p| [p[0], p[1]]).unwrap_or([0.0; 2]);
+    let st = pg_accelerated(ctx, key, &pg, &producers).unwrap_or_else(|| {
+        PG_CACHE.run_where(
+            key,
+            steps_at(ctx.time),
+            PgState::default,
+            |st, i| pg.step_at(st, producer(i)),
+            |s, st| producer_prefix.get(s as usize) == Some(&st.producer_hist),
+        )
+    });
     Some(
         st.parts
             .iter()
@@ -747,7 +790,7 @@ pub fn playground_plan(ctx: &EffectCtx, b: &Buf) -> PgPlan {
     let ex_r = pr.f("layerExploder/radiusOfNewParticles").max(0.5) as f32;
     let ex_disp = pr.f("layerExploder/velocityDispersion") as f32;
 
-    let mut key = params_key(ctx, &Buf { img: Image::new(0, 0), offset: [0.0; 2], scale: 1.0 }, 0x7067);
+    let mut key = pg_key(ctx);
     for m in [&pg.persistent, &pg.ephemeral].into_iter().flatten() {
         key ^= image_key(&m.map.img).rotate_left(7);
     }
@@ -818,8 +861,19 @@ pub fn playground_plan(ctx: &EffectCtx, b: &Buf) -> PgPlan {
     };
     // A cannon with gravity only: every particle moves on its own (GPU particles).
     let independent = pg.cannon_only() && !(grid_on && across > 0 && down > 0) && exploder.is_none();
-    let gpu = if independent { pg_accelerated(ctx, key, &pg) } else { None };
-    let st = gpu.unwrap_or_else(|| PG_CACHE.run(key, steps_at(ctx.time), init, |st, _| pg.step(st)));
+    let producers = PG_PRODUCER.history(ctx);
+    let producer_prefix = crate::psim::producer_prefixes(&producers);
+    let producer = |i: u64| producers.get(i as usize).map(|p| [p[0], p[1]]).unwrap_or([0.0; 2]);
+    let gpu = if independent { pg_accelerated(ctx, key, &pg, &producers) } else { None };
+    let st = gpu.unwrap_or_else(|| {
+        PG_CACHE.run_where(
+            key,
+            steps_at(ctx.time),
+            init,
+            |st, i| pg.step_at(st, producer(i)),
+            |s, st| producer_prefix.get(s as usize) == Some(&st.producer_hist),
+        )
+    });
     // Render: what the ephemeral mapper changes shows for this frame only.
     let parts: Vec<PgParticle> = st.parts.iter().map(|q| pg.ephemeral(q)).collect();
     let auto_orient = pr.b("options/autoOrientRotation");
@@ -925,7 +979,7 @@ impl PgPlan {
     pub fn finish(&self, mut b: Buf) -> Buf {
         let mut fx = splat(b.img.width, b.img.height, &self.sprites.sprites, self.sprites.acc);
         for q in &self.blits {
-            blit_layer(&mut fx, &self.frames[q.frame], q.x, q.y, q.angle, q.scale, b.scale, q.alpha);
+            blit_layer(&mut fx, &self.frames[q.frame], [q.x, q.y], q.angle, q.scale, b.scale, q.alpha);
         }
         // Particles replace the layer's own pixels.
         b.img = combine(&b.img, &fx, 5);
@@ -933,7 +987,7 @@ impl PgPlan {
     }
 }
 
-// ---------------------------------------------------------------- CC Hair
+// ---------------------------------------------------------------- Surface Fibers
 
 fn cc_hair(ctx: &EffectCtx, b: Buf) -> Buf {
     let Some(mut plan) = hair_plan(ctx, &b) else { return b };
@@ -941,7 +995,7 @@ fn cc_hair(ctx: &EffectCtx, b: Buf) -> Buf {
     plan.finish(b)
 }
 
-/// CC Hair's strands as line sprites (each coloured from its root, see [`Tint::Root`]);
+/// Surface Fibers's strands as line sprites (each coloured from its root, see [`Tint::Root`]);
 /// `None` = no hair (the layer passes through).
 pub(crate) fn hair_plan(ctx: &EffectCtx, b: &Buf) -> Option<SpritePlan> {
     let pr = ctx.params;
@@ -1143,7 +1197,7 @@ pub fn specs() -> Vec<EffectSpec> {
         spec("ec.sim.particleplayground", "Particle Playground", pg, particle_playground),
         spec(
             "ec.sim.cchair",
-            "CC Hair",
+            "Surface Fibers",
             vec![
                 sp("length", "Length", px(30.0, 200.0)),
                 p("thickness", "Thickness", num(1.0), slider(0.05, 20.0, 0.1, 5.0, 2)),
@@ -1176,379 +1230,4 @@ pub fn specs() -> Vec<EffectSpec> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{EffectEnv, MaskShape, run_fx};
-
-    fn run(vals: &[(&str, Value)], t: f64) -> Image {
-        run_fx("ec.sim.particleplayground", vals, Image::filled(80, 60, [0.2, 0.2, 0.2, 1.0]), t, EffectEnv::default()).img
-    }
-
-    fn cannon(t: f64) -> Image {
-        run(&[("cannon/cannonPosition", Value::Vec2([40.0, 50.0])), ("cannon/velocity", num(60.0)), ("gravity/gravityForce", num(30.0))], t)
-    }
-
-    #[test]
-    fn cannon_stream_is_seek_consistent() {
-        let a = cannon(1.0);
-        // Particles replace the layer: some coverage, mostly transparent, red.
-        let cov: f32 = a.data.iter().map(|p| p[3]).sum();
-        assert!(cov > 5.0, "{cov}");
-        assert!(a.data.iter().any(|p| p[3] > 0.5 && p[0] > 0.5 && p[1] < 0.1));
-        // Seek back and forth: the same frame every time.
-        let _ = cannon(2.0);
-        let b = cannon(1.0);
-        assert_eq!(a.data, b.data);
-        let c = cannon(0.5);
-        assert_ne!(a.data, c.data);
-        // Nothing has been fired at time 0.
-        let z = cannon(0.0);
-        assert!(z.data.iter().all(|p| p[3] == 0.0));
-    }
-
-    #[test]
-    fn grid_falls_with_gravity_and_bounces_off_a_wall() {
-        let grid = |t: f64, env: EffectEnv| {
-            run_fx(
-                "ec.sim.particleplayground",
-                &[
-                    ("cannonEnabled", Value::Bool(false)),
-                    ("grid/gridPosition", Value::Vec2([40.0, 10.0])),
-                    ("grid/gridWidth", num(40.0)),
-                    ("grid/gridHeight", num(0.0)),
-                    ("grid/particlesAcross", num(5.0)),
-                    ("grid/particlesDown", num(1.0)),
-                    ("gravity/gravityForce", num(100.0)),
-                    ("wall/wallBoundary", num(1.0)),
-                ],
-                Image::new(80, 60),
-                t,
-                env,
-            )
-            .img
-        };
-        // Alpha-weighted mean height of the particles.
-        let row_of = |img: &Image| {
-            let (mut s, mut n) = (0.0f64, 0.0f64);
-            for y in 0..60 {
-                for x in 0..80 {
-                    let a = img.get(x, y)[3] as f64;
-                    s += (y as f64 + 0.5) * a;
-                    n += a;
-                }
-            }
-            (s / n.max(1e-9)).round() as i64
-        };
-        let t0 = grid(0.0, EffectEnv::default());
-        let t1 = grid(0.5, EffectEnv::default());
-        assert_eq!(row_of(&t0), 10);
-        // ½ g t² = 12.5 px.
-        assert!((row_of(&t1) - 22).abs() <= 2, "{}", row_of(&t1));
-        // A wall (mask 1) whose floor is at y = 15 keeps them above it.
-        let masks = [MaskShape { name: "w".into(), points: vec![[0.0, 0.0], [80.0, 0.0], [80.0, 15.0], [0.0, 15.0]], closed: true, inverted: false }];
-        let env = EffectEnv { masks: &masks, ..Default::default() };
-        let w = grid(1.5, env);
-        assert!(row_of(&w) <= 16, "{}", row_of(&w));
-    }
-
-    #[test]
-    fn repel_spreads_particles() {
-        let spread = |force: f64| {
-            let img = run(
-                &[
-                    ("cannonEnabled", Value::Bool(false)),
-                    ("grid/gridPosition", Value::Vec2([40.0, 30.0])),
-                    ("grid/gridWidth", num(6.0)),
-                    ("grid/gridHeight", num(6.0)),
-                    ("grid/particlesAcross", num(3.0)),
-                    ("grid/particlesDown", num(3.0)),
-                    ("gravity/gravityForce", num(0.0)),
-                    ("repel/repelForce", num(force)),
-                    ("repel/repelForceRadius", num(20.0)),
-                ],
-                0.5,
-            );
-            let (mut x0, mut x1) = (80, 0);
-            for y in 0..60 {
-                for x in 0..80 {
-                    if img.get(x, y)[3] > 0.3 {
-                        x0 = x0.min(x);
-                        x1 = x1.max(x);
-                    }
-                }
-            }
-            x1 - x0
-        };
-        assert!(spread(0.2) > spread(0.0) + 4, "{} vs {}", spread(0.2), spread(0.0));
-    }
-
-    #[test]
-    fn property_mapper_and_layer_map_read_layers() {
-        // Without a host, the layer-based features are inert (deterministic output).
-        let a = run(
-            &[
-                ("persistentPropertyMapper/mapRedTo", Value::Enum(8)),
-                ("persistentPropertyMapper/redMin", num(-50.0)),
-                ("persistentPropertyMapper/redMax", num(50.0)),
-            ],
-            0.7,
-        );
-        let b = run(
-            &[
-                ("persistentPropertyMapper/mapRedTo", Value::Enum(8)),
-                ("persistentPropertyMapper/redMin", num(-50.0)),
-                ("persistentPropertyMapper/redMax", num(50.0)),
-            ],
-            0.7,
-        );
-        assert_eq!(a.data, b.data);
-        let st =
-            Pg { persistent: Some(mapper(Image::filled(4, 4, [1.0, 0.0, 0.5, 1.0]), [(15, 0, 0.0, 120.0), (0, 0, 0.0, 1.0), (9, 0, 0.0, 2.0)])), ..bare(1) };
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([1.0, 1.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID));
-        st.step(&mut s);
-        // Red 1 → X speed 120 px/s; blue 0.5 → scale 1.
-        assert!((s.parts[0].v[0] - 120.0).abs() < 1e-3);
-        assert!((s.parts[0].scale[0] - 1.0).abs() < 1e-3);
-    }
-
-    /// A Pg with nothing switched on.
-    fn bare(seed: u32) -> Pg {
-        Pg {
-            cannon: false,
-            pos: [0.0; 2],
-            barrel_angle: 0.0,
-            barrel_radius: 0.0,
-            rate: 0.0,
-            dir_spread: 0.0,
-            vel: 0.0,
-            vel_spread: 0.0,
-            color: [1.0; 4],
-            radius: 2.0,
-            cannon_text: vec![],
-            pex_radius: 0.0,
-            pex_dispersion: 0.0,
-            pex_affects: Affects::default(),
-            gravity: [0.0; 2],
-            grav_spread: 0.0,
-            grav_affects: Affects::default(),
-            repel: 0.0,
-            repel_radius: 0.0,
-            repel_affects: Affects::default(),
-            wall: None,
-            wall_affects: Affects::default(),
-            persistent: None,
-            ephemeral: None,
-            seed,
-            bounds: [-1e6, -1e6, 1e6, 1e6],
-        }
-    }
-
-    fn mapper(img: Image, chans: [(u32, u32, f32, f32); 3]) -> Mapper {
-        Mapper { map: MapImg { img, k: [1.0; 2], o: [0.0; 2] }, chans, affects: Affects::default() }
-    }
-
-    #[test]
-    fn barrel_radius_square_or_disc() {
-        let pg = |r: f32| Pg { cannon: true, barrel_radius: r, ..bare(3) };
-        let (sq, disc) = (pg(10.0), pg(-10.0));
-        let mut corner = false;
-        for id in 0..400 {
-            let a = sq.spawn(id).p;
-            assert!(a[0].abs() <= 10.0 && a[1].abs() <= 10.0);
-            // A square barrel fills its corners (both offsets in use, not a line).
-            corner |= a[0].abs() > 7.5 && a[1].abs() > 7.5;
-            let b = disc.spawn(id).p;
-            assert!(b[0].hypot(b[1]) <= 10.0 + 1e-4);
-        }
-        assert!(corner);
-        // Radius 0: every particle starts at the cannon position.
-        assert_eq!(pg(0.0).spawn(5).p, [0.0, 0.0]);
-    }
-
-    #[test]
-    fn mapper_drives_position_and_opacity_in_ae_order() {
-        let st =
-            Pg { persistent: Some(mapper(Image::filled(4, 4, [1.0, 0.5, 0.25, 1.0]), [(12, 0, 0.0, 30.0), (20, 0, 0.0, 1.0), (4, 0, 0.0, 1.0)])), ..bare(1) };
-        assert_eq!(MAP_TARGETS[12], "X");
-        assert_eq!(MAP_TARGETS[20], "Opacity");
-        assert_eq!(MAP_TARGETS[26], "Scale Speed");
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([1.0, 1.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID));
-        st.step(&mut s);
-        assert!((s.parts[0].p[0] - 30.0).abs() < 1e-3, "{:?}", s.parts[0].p);
-        assert!((s.parts[0].c[3] - 0.5).abs() < 1e-3);
-        assert!((s.parts[0].friction - 0.25).abs() < 1e-3);
-    }
-
-    #[test]
-    fn ephemeral_mapper_holds_for_one_step_with_operators() {
-        // Ephemeral X Speed = 60 px/s (Set): the particle moves, but keeps no velocity.
-        let st = Pg { ephemeral: Some(mapper(Image::filled(4, 4, [1.0, 1.0, 1.0, 1.0]), [(15, 0, 0.0, 60.0), (0, 0, 0.0, 1.0), (0, 0, 0.0, 1.0)])), ..bare(1) };
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([1.0, 1.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID));
-        st.step(&mut s);
-        assert!((s.parts[0].p[0] - 2.0).abs() < 1e-4, "{:?}", s.parts[0].p);
-        assert!(s.parts[0].v[0].abs() < 1e-4);
-        // Operators: Add / Multiply / Max on the particle's own value.
-        let op = |o: u32, cur: f32| {
-            let m = mapper(Image::filled(4, 4, [1.0, 1.0, 1.0, 1.0]), [(21, o, 0.0, 3.0), (0, 0, 0.0, 1.0), (0, 0, 0.0, 1.0)]);
-            let mut q = PgParticle::new([1.0, 1.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID);
-            q.mass = cur;
-            m.apply(&mut q);
-            q.mass
-        };
-        assert_eq!(MAP_OPERATORS[1], "Add");
-        assert!((op(1, 2.0) - 5.0).abs() < 1e-5);
-        assert!((op(4, 2.0) - 6.0).abs() < 1e-5);
-        assert!((op(6, 5.0) - 5.0).abs() < 1e-5);
-        assert!((op(2, 5.0) - 2.0).abs() < 1e-5, "Difference");
-    }
-
-    #[test]
-    fn affects_select_by_source_age_and_characters() {
-        let mut q = PgParticle::new([0.0; 2], [0.0; 2], [1.0; 4], 2.0, 0, SRC_CANNON);
-        let a = Affects { from: 2, ..Default::default() };
-        assert_eq!(a.weight(&q), 0.0, "grid only");
-        q.src = SRC_GRID;
-        assert_eq!(a.weight(&q), 1.0);
-        let older = Affects { age: 1.0, ..Default::default() };
-        q.age = 0.5;
-        assert_eq!(older.weight(&q), 0.0);
-        q.age = 1.5;
-        assert_eq!(older.weight(&q), 1.0);
-        let younger = Affects { age: -1.0, feather: 1.0, ..Default::default() };
-        q.age = 1.0;
-        assert!((younger.weight(&q) - 0.5).abs() < 1e-5, "feathered");
-        let chars = Affects { chars: vec!['A', 'B'], ..Default::default() };
-        q.ch = 'B' as u32;
-        assert_eq!(chars.weight(&q), 1.0);
-        q.ch = 'C' as u32;
-        assert_eq!(chars.weight(&q), 0.0);
-        // Gravity restricted to the cannon leaves grid particles in place.
-        let st = Pg { gravity: [0.0, 100.0], grav_affects: Affects { from: 1, ..Default::default() }, ..bare(1) };
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([5.0, 5.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID));
-        s.parts.push(PgParticle::new([5.0, 5.0], [0.0; 2], [1.0; 4], 2.0, 1, SRC_CANNON));
-        for _ in 0..10 {
-            st.step(&mut s);
-        }
-        assert_eq!(s.parts[0].p, [5.0, 5.0]);
-        assert!(s.parts[1].p[1] > 5.0);
-    }
-
-    #[test]
-    fn particle_exploder_bursts_big_particles() {
-        let st = Pg { pex_radius: 2.0, pex_dispersion: 30.0, ..bare(1) };
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([50.0, 50.0], [0.0; 2], [1.0; 4], 6.0, 0, SRC_GRID));
-        s.next_id = 1;
-        st.step(&mut s);
-        assert_eq!(s.parts.len(), 9, "(6/2)² new particles");
-        assert!(s.parts.iter().all(|q| q.r == 2.0 && q.src == SRC_PARTICLE_EXPLODER));
-        st.step(&mut s);
-        assert_eq!(s.parts.len(), 9, "new particles do not burst again");
-        // Lifespan from a mapper removes particles once they are older.
-        let life = Pg { persistent: Some(mapper(Image::filled(4, 4, [1.0; 4]), [(22, 0, 0.0, 0.05), (0, 0, 0.0, 1.0), (0, 0, 0.0, 1.0)])), ..bare(1) };
-        let mut s = PgState::default();
-        s.parts.push(PgParticle::new([1.0, 1.0], [0.0; 2], [1.0; 4], 2.0, 0, SRC_GRID));
-        for _ in 0..2 {
-            life.step(&mut s);
-        }
-        assert_eq!(s.parts.len(), 1);
-        for _ in 0..3 {
-            life.step(&mut s);
-        }
-        assert!(s.parts.is_empty());
-    }
-
-    #[test]
-    fn text_particles_draw_characters() {
-        let grid = |text: &str| {
-            run(
-                &[
-                    ("cannonEnabled", Value::Bool(false)),
-                    ("grid/gridPosition", Value::Vec2([40.0, 30.0])),
-                    ("grid/gridWidth", num(40.0)),
-                    ("grid/gridHeight", num(0.0)),
-                    ("grid/particlesAcross", num(3.0)),
-                    ("grid/particlesDown", num(1.0)),
-                    ("grid/gridParticleRadius", num(16.0)),
-                    ("gravity/gravityForce", num(0.0)),
-                    ("options/gridText", Value::Str(text.into())),
-                ],
-                0.1,
-            )
-        };
-        let dots = grid("");
-        let text = grid("I-O");
-        assert_ne!(dots.data, text.data);
-        // "I" is a vertical bar: ink above and below the grid point, not a round dot.
-        assert!(text.get(20, 26)[3] > 0.3 && text.get(20, 34)[3] > 0.3, "{:?}", text.get(20, 26));
-        // A space leaves its grid point empty.
-        let gap = grid("I O");
-        assert!(gap.get(40, 30)[3] < 0.05);
-        // Cannon text: particles carry the characters in order.
-        let pg = Pg { cannon_text: vec!['A', 'B'], ..bare(1) };
-        assert_eq!(pg.spawn(0).ch, 'A' as u32);
-        assert_eq!(pg.spawn(3).ch, 'B' as u32);
-    }
-
-    #[test]
-    fn layer_map_shows_the_map_layer_at_its_time_offset() {
-        /// A 6×6 map layer whose colour encodes the comp time it was fetched at.
-        struct Clock;
-        impl crate::EffectHost for Clock {
-            fn layer(&self, _: u64, _: bool) -> Option<crate::LayerPixels> {
-                None
-            }
-            fn audio(&self, _: u64, _: f64, _: usize, _: u32) -> Option<Vec<f32>> {
-                None
-            }
-            fn layer_at(&self, _: u64, t: f64, _: bool) -> Option<crate::LayerPixels> {
-                let v = (t as f32 / 4.0).clamp(0.0, 1.0);
-                Some(crate::LayerPixels { buf: Buf { img: Image::filled(6, 6, [v, 0.0, 1.0 - v, 1.0]), offset: [0.0; 2], scale: 1.0 }, size: [6.0, 6.0] })
-            }
-        }
-        let render = |kind: u32, offset: f64| {
-            let vals = [
-                ("cannonEnabled", Value::Bool(false)),
-                ("grid/gridPosition", Value::Vec2([40.0, 30.0])),
-                ("grid/particlesAcross", num(1.0)),
-                ("grid/particlesDown", num(1.0)),
-                ("gravity/gravityForce", num(0.0)),
-                ("layerMap/layerMapLayer", Value::Layer(Some(9))),
-                ("layerMap/timeOffsetType", Value::Enum(kind)),
-                ("layerMap/timeOffset", num(offset)),
-            ];
-            let env = EffectEnv { host: Some(&Clock), comp_time: 1.0, frame_rate: 10.0, ..Default::default() };
-            run_fx("ec.sim.particleplayground", &vals, Image::filled(80, 60, [0.2, 0.2, 0.2, 1.0]), 1.0, env).img
-        };
-        // The particle is a 6×6 copy of the map layer.
-        let rel = render(0, 1.0);
-        assert!(rel.get(40, 30)[3] > 0.99 && rel.get(46, 30)[3] < 0.01);
-        assert!((rel.get(40, 30)[0] - 0.5).abs() < 1e-3, "relative: now + 1 s = 2 s");
-        let abs = render(1, 3.0);
-        assert!((abs.get(40, 30)[0] - 0.75).abs() < 1e-3, "absolute: 3 s");
-    }
-
-    #[test]
-    fn cc_hair_grows_from_opaque_pixels() {
-        let mut img = Image::new(60, 60);
-        for y in 20..40 {
-            for x in 20..40 {
-                img.set(x, y, [0.8, 0.6, 0.4, 1.0]);
-            }
-        }
-        let out = run_fx("ec.sim.cchair", &[("length", num(12.0)), ("density", num(300.0))], img.clone(), 0.0, EffectEnv::default());
-        // Hair reaches beyond the square (above it: hair leans up, then droops).
-        let outside: f32 = (0..60).flat_map(|x| (0..20).map(move |y| (x, y))).map(|(x, y)| out.img.get(x, y)[3]).sum();
-        assert!(outside > 1.0, "{outside}");
-        // Nothing grows from transparent areas far away.
-        assert_eq!(out.img.get(2, 58)[3], 0.0);
-        let again = run_fx("ec.sim.cchair", &[("length", num(12.0)), ("density", num(300.0))], img.clone(), 3.0, EffectEnv::default());
-        assert_eq!(out.img.data, again.img.data);
-        let none = run_fx("ec.sim.cchair", &[("length", num(0.0))], img.clone(), 0.0, EffectEnv::default());
-        assert_eq!(none.img.data, img.data);
-    }
-}
+mod tests;
