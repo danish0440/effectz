@@ -103,6 +103,7 @@ fn main() {
         .with_size(egui::vec2(args.size.0, args.size.1))
         .with_pixels_per_point(args.scale)
         .wgpu()
+        .with_context_setup(effectz_ui_egui::framework::install_headless)
         .build_eframe(move |_cc| EffectzApp::new(session).with_control(rx));
     settle(&mut harness, args.settle);
     for step in &args.steps {
