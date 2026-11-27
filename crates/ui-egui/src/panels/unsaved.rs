@@ -16,7 +16,16 @@ use crate::theme::Tokens;
 use crate::{Dialog, EffectzApp};
 
 /// Commands that replace or close the open project (Quit is asked when the window closes).
-const CLOSING: &[&str] = &["file.newProject", "file.open", "file.openRecent", "file.closeProject", "file.revert", "file.openDemoProject", "templates.create"];
+const CLOSING: &[&str] = &[
+    "file.newProject",
+    "file.open",
+    "file.openRecent",
+    "file.closeProject",
+    "file.revert",
+    "file.openDemoProject",
+    "templates.create",
+    "file.runShutdownScripts",
+];
 
 /// The command waiting on the prompt, and whether the user already answered it.
 #[derive(Clone, Debug, Default)]
@@ -46,16 +55,24 @@ fn ask(app: &mut EffectzApp, id: &str, params: &Value) -> bool {
     true
 }
 
-/// The window's close button (and Quit, which closes it): keep the window open and ask.
-pub fn on_close_requested(app: &mut EffectzApp, ctx: &egui::Context) {
-    if !ctx.input(|i| i.viewport().close_requested()) || app.dialog_state.unsaved.quitting {
-        return;
+/// The root window's close decision, which the runtime's close path (`crate::framework`, `close_path`) asks when the
+/// window's close button, Quit or `app.quit` closes the window. A lost graphics device and an answered Quit prompt
+/// close; a running script render holds the window (a close is no permission to abandon the script, and once Stop
+/// finishes it a new close is asked about as usual); a modified project holds it while the Unsaved Changes prompt
+/// asks. On macOS a close that nothing holds quits through the platform (the runtime's close path).
+pub fn close_decision(app: &mut EffectzApp) -> craft_ui::shell::embed::CloseDecision {
+    if app.device_lost_close.is_some() {
+        return crate::framework::decide(true);
+    }
+    if app.session.script_ui.render_host.is_some() {
+        return crate::framework::decide(false);
+    }
+    if app.dialog_state.unsaved.quitting {
+        return crate::framework::decide(true);
     }
     // Logged, so a window that closes on its own shows it (#234).
     log::info!("the window was asked to close");
-    if ask(app, "app.quit", &json!({})) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-    }
+    crate::framework::decide(!ask(app, "app.quit", &json!({})))
 }
 
 /// The project's display name: its file name, or `Untitled Project.ecproj`.
@@ -68,10 +85,17 @@ pub fn project_name(app: &EffectzApp) -> String {
         .unwrap_or_else(|| "Untitled Project.ecproj".into())
 }
 
-/// The window title: the project's path (or name) and `*` while it has unsaved changes.
+/// The window title: the project's path (or name) and `*` while it has unsaved changes, under the
+/// channel's own product name (`EffectZ`, or `EffectZ Nightly`).
 pub fn window_title(app: &EffectzApp) -> String {
     let doc = app.session.path.clone().unwrap_or_else(|| project_name(app));
-    format!("EffectZ - {doc}{}", if app.session.is_dirty() { " *" } else { "" })
+    title_for(crate::channel::name_for(crate::channel::identity()), &doc, app.session.is_dirty())
+}
+
+/// The title rule, as text: the channel's name, the document and ` *` while it has unsaved
+/// changes. Kept separate from the process-global identity so both channels' titles are testable.
+fn title_for(app_name: &str, document: &str, dirty: bool) -> String {
+    format!("{app_name} - {document}{}", if dirty { " *" } else { "" })
 }
 
 /// Whether the prompt is Revert Project (Revert / Cancel) instead of Unsaved Changes.
@@ -186,6 +210,7 @@ mod tests {
 
     fn app() -> (EffectzApp, egui::Context) {
         let ctx = egui::Context::default();
+        crate::framework::install_headless(&ctx);
         let app = EffectzApp::new(effectz_engine::Session::default());
         crate::theme::install(&ctx, &app.tokens, crate::i18n::language(&app));
         (app, ctx)
@@ -200,16 +225,39 @@ mod tests {
         }
         let mut out = ctx.run_ui(raw, |ui| {
             app.auto.begin_frame();
-            on_close_requested(app, ui.ctx());
+            app.close_path(ui.ctx());
             crate::panels::dialogs::show(app, ui.ctx());
         });
         out.textures_delta.clear();
         out.viewport_output.get(&egui::ViewportId::ROOT).is_some_and(|v| v.commands.contains(&egui::ViewportCommand::CancelClose))
     }
 
+    /// One frame of the dialogs with the window's close button pressed, through the runtime's close path as the app
+    /// runs it; returns whether the close was canceled (held, or taken by the platform quit on macOS).
+    fn close_frame(app: &mut EffectzApp, ctx: &egui::Context) -> bool {
+        frame(app, ctx, true)
+    }
+
     fn modified(app: &mut EffectzApp) {
         app.session.execute("comp.new", json!({"name": "Main", "width": 64, "height": 64})).unwrap();
         assert!(app.session.is_dirty());
+    }
+
+    #[test]
+    fn shutdown_scripts_prompt_before_discarding_unsaved_work() {
+        let (mut app, ctx) = app();
+        modified(&mut app);
+        let result = crate::menus::invoke(&mut app, &ctx, "file.runShutdownScripts", json!({})).unwrap();
+        assert_eq!(result, json!({"dialog": "unsavedChanges"}));
+        assert_eq!(app.session.project.comps().count(), 1);
+        assert!(app.session.is_dirty());
+        answer_with(&mut app, &ctx, Answer::Cancel);
+        assert_eq!(app.session.project.comps().count(), 1);
+        assert!(app.session.is_dirty());
+        crate::menus::invoke(&mut app, &ctx, "file.runShutdownScripts", json!({})).unwrap();
+        answer_with(&mut app, &ctx, Answer::Discard);
+        assert_eq!(app.session.project.comps().count(), 0);
+        assert!(!app.session.is_dirty() && app.dialog.is_none());
     }
 
     #[test]
@@ -220,6 +268,10 @@ mod tests {
         assert!(app.dialog.is_none());
         modified(&mut app);
         assert!(window_title(&app).ends_with("Untitled Project.ecproj *"), "{}", window_title(&app));
+        // The channel's own name leads the title, in both its clean and dirty form.
+        assert_eq!(title_for("EffectZ Nightly", "Shot.ecproj", false), "EffectZ Nightly - Shot.ecproj");
+        assert_eq!(title_for("EffectZ Nightly", "Shot.ecproj", true), "EffectZ Nightly - Shot.ecproj *");
+        assert_eq!(title_for("EffectZ", "Shot.ecproj", false), "EffectZ - Shot.ecproj");
         let r = crate::menus::invoke(&mut app, &ctx, "file.newProject", json!({})).unwrap();
         assert_eq!(r, json!({"dialog": "unsavedChanges"}));
         assert_eq!(app.dialog, Some(Dialog::UnsavedChanges));
@@ -339,5 +391,83 @@ mod tests {
         app.session.execute("edit.undo", json!({})).unwrap();
         assert!(!app.session.is_dirty());
         assert!(!frame(&mut app, &ctx, true));
+    }
+
+    /// Closing the window while AppKit's run loop is running crashes on a Mac with a Touch Bar
+    /// (#341). On macOS the close is canceled and the app quits through
+    /// `-[NSApplication terminate:]`. Other platforms close the window.
+    #[test]
+    fn closing_a_saved_project_quits_through_the_platform_on_macos() {
+        let (mut app, ctx) = app();
+        let macos = cfg!(target_os = "macos");
+        assert_eq!(close_frame(&mut app, &ctx), macos);
+        assert!(app.dialog.is_none(), "nothing to ask");
+    }
+
+    #[test]
+    fn closing_a_modified_project_asks_before_the_platform_quit() {
+        let (mut app, ctx) = app();
+        modified(&mut app);
+        assert!(close_frame(&mut app, &ctx), "the prompt holds the window");
+        assert_eq!(app.dialog, Some(Dialog::UnsavedChanges));
+        answer_with(&mut app, &ctx, Answer::Cancel);
+        assert!(app.session.is_dirty() && !app.dialog_state.unsaved.quitting);
+        assert!(close_frame(&mut app, &ctx), "asked again after Cancel");
+        answer_with(&mut app, &ctx, Answer::Discard);
+        let macos = cfg!(target_os = "macos");
+        assert_eq!(close_frame(&mut app, &ctx), macos, "Don't Save closes");
+    }
+
+    /// While the window is minimized or hidden, eframe runs `App::logic` without `App::ui` and
+    /// still handles a close: `logic` asks about a modified project.
+    #[test]
+    fn a_close_while_only_logic_runs_asks_about_a_modified_project() {
+        let (mut app, ctx) = app();
+        modified(&mut app);
+        let mut raw = egui::RawInput::default();
+        raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        let mut frame = eframe::Frame::_new_kittest();
+        let out = ctx.run_logic(&raw, |ctx| eframe::App::logic(&mut app, ctx, &mut frame));
+        let canceled = out.viewport_commands.get(&egui::ViewportId::ROOT).is_some_and(|c| c.contains(&egui::ViewportCommand::CancelClose));
+        assert!(canceled, "the close is canceled");
+        assert_eq!(app.dialog, Some(Dialog::UnsavedChanges));
+    }
+
+    /// A file dialog answered in the frame that closes the window runs its command before the
+    /// close decision, so a change it makes is asked about.
+    #[test]
+    fn a_dialog_answer_runs_before_the_close_decision() {
+        let (mut app, ctx) = app();
+        assert!(!app.session.is_dirty());
+        let answer =
+            crate::DialogAnswer { command: "comp.new".into(), key: "name", params: json!({"width": 64, "height": 64}), paths: Ok(vec!["Main".into()]) };
+        app.dialog_answers.0.send(answer).unwrap();
+        let mut raw = egui::RawInput::default();
+        raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        let mut frame = eframe::Frame::_new_kittest();
+        let out = ctx.run_logic(&raw, |ctx| eframe::App::logic(&mut app, ctx, &mut frame));
+        let canceled = out.viewport_commands.get(&egui::ViewportId::ROOT).is_some_and(|c| c.contains(&egui::ViewportCommand::CancelClose));
+        assert!(app.session.is_dirty(), "the answer ran");
+        assert!(canceled, "the close is canceled");
+        assert_eq!(app.dialog, Some(Dialog::UnsavedChanges));
+    }
+
+    /// The tick makes the close decision and leaves the platform quit to the host, which runs it
+    /// last in `logic`, after its own work (the desktop host shows the file dialogs asked for).
+    /// On macOS `logic` cancels the close and quits; other platforms close the window.
+    #[test]
+    fn the_platform_quit_runs_after_the_tick() {
+        let (mut app, ctx) = app();
+        let mut raw = egui::RawInput::default();
+        raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        let frame = eframe::Frame::_new_kittest();
+        let canceled =
+            |out: &egui::LogicOutput| out.viewport_commands.get(&egui::ViewportId::ROOT).is_some_and(|c| c.contains(&egui::ViewportCommand::CancelClose));
+        let out = ctx.run_logic(&raw, |ctx| app.tick(ctx, &frame));
+        assert!(!canceled(&out), "the tick leaves a saved project's close to the host");
+        let mut frame = eframe::Frame::_new_kittest();
+        let out = ctx.run_logic(&raw, |ctx| eframe::App::logic(&mut app, ctx, &mut frame));
+        assert_eq!(canceled(&out), cfg!(target_os = "macos"), "logic quits through the platform on macOS");
+        assert!(app.dialog.is_none(), "nothing to ask");
     }
 }

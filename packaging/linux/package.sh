@@ -7,7 +7,7 @@
 #   $DIST/effectz-<version>-linux-<arch>.rpm       Fedora, openSUSE, RHEL, ...
 #   $DIST/effectz-<version>-linux-<arch>.tar.gz    plain FHS-style tree (bin/, share/)
 #
-# Usage: packaging/linux/package.sh [--skip-build] [--formats "appimage deb rpm tar"]
+# Usage: packaging/linux/package.sh [--skip-build] [--formats "appimage deb rpm tar"] [--arch-tar-dir DIRECTORY]
 #
 # Needs: cargo; nfpm for deb/rpm (https://nfpm.goreleaser.com); appimagetool for the AppImage
 # (downloaded into $CARGO_TARGET_DIR if missing). Build on an old distro (CI: Ubuntu 22.04,
@@ -25,10 +25,16 @@ APP_ID=com.pintaz.effectz
 
 SKIP_BUILD=0
 FORMATS="appimage deb rpm tar"
-while [ $# -gt 0 ]; do
+ARCH_TAR_DIR=
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --formats) FORMATS="$2"; shift 2 ;;
+    --arch-tar-dir)
+      [[ -n "${2:-}" ]] || { echo "error: --arch-tar-dir needs a directory" >&2; exit 2; }
+      ARCH_TAR_DIR="$2"
+      shift 2
+      ;;
     -h | --help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -42,12 +48,27 @@ case "$ARCH" in
   *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
 esac
 export EFFECTZ_MAINTAINER="${EFFECTZ_MAINTAINER:-EffectZ maintainers <effectz@storyteller.ai>}"
-BASENAME="effectz-$VERSION-linux-$ARCH"
+IS_NIGHTLY=0
+if [[ "${EFFECTZ_BUILD_CHANNEL:-}" == nightly-v1 || "$VERSION" == *-nightly* ]]; then
+  IS_NIGHTLY=1
+  export EFFECTZ_BUILD_CHANNEL=nightly-v1
+  export EFFECTZ_OVERRIDE_VERSION="$VERSION"
+fi
+ARTIFACT_VERSION="$VERSION"
+if [[ "$IS_NIGHTLY" = 1 && "$ARTIFACT_VERSION" != *-nightly* ]]; then
+  ARTIFACT_VERSION="$ARTIFACT_VERSION-nightly"
+fi
+BASENAME="effectz-$ARTIFACT_VERSION-linux-$ARCH"
 
-echo "==> EffectZ $VERSION for Linux $ARCH ($FORMATS)"
+if [[ -n "$ARCH_TAR_DIR" && "$IS_NIGHTLY" != 1 ]]; then
+  echo "error: --arch-tar-dir is only for Nightly builds" >&2
+  exit 2
+fi
 
-if [ "$SKIP_BUILD" = 0 ]; then
-  if [ -n "${CROSS_TARGET:-}" ]; then
+echo "==> EffectZ $VERSION for Linux $ARCH ($FORMATS, channel=${EFFECTZ_BUILD_CHANNEL:-stable})"
+
+if [[ "$SKIP_BUILD" = 0 ]]; then
+  if [[ -n "${CROSS_TARGET:-}" ]]; then
     (cd "$ROOT" && cargo build --release --locked -p effectz -p effectz-cli --target "$CROSS_TARGET")
   else
     (cd "$ROOT" && cargo build --release --locked -p effectz -p effectz-cli)
@@ -63,6 +84,11 @@ install -Dm755 "$BIN/effectz" "$STAGE/usr/bin/effectz"
 install -Dm755 "$BIN/effectz-cli" "$STAGE/usr/bin/effectz-cli"
 "${CROSS_COMPILE:-}strip" "$STAGE/usr/bin/effectz" "$STAGE/usr/bin/effectz-cli" 2>/dev/null || true
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
+if [[ "$IS_NIGHTLY" = 1 ]]; then
+  sed -e 's|^StartupWMClass=.*|StartupWMClass=com.pintaz.effectz.nightly-v1|' \
+      "$STAGE/usr/share/applications/$APP_ID.desktop" >"$STAGE/usr/share/applications/$APP_ID.desktop.tmp"
+  mv "$STAGE/usr/share/applications/$APP_ID.desktop.tmp" "$STAGE/usr/share/applications/$APP_ID.desktop"
+fi
 install -Dm644 "$HERE/$APP_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$EFFECTZ_BUILD_DATE/g" \
@@ -79,7 +105,15 @@ if command -v appstreamcli >/dev/null; then
   appstreamcli validate --no-net --explain "$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 fi
 
-has() { case " $FORMATS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+has() {
+  local format="$1"
+  case " $FORMATS " in *" $format "*) return 0 ;; *) return 1 ;; esac
+}
+
+# Fails unless FILE ($2) has SHA-256 digest $1.
+verify_sha256() {
+  printf '%s  %s\n' "$1" "$2" | sha256sum -c -
+}
 
 # ---- .tar.gz ------------------------------------------------------------------------------------
 if has tar; then
@@ -89,13 +123,92 @@ if has tar; then
   echo "wrote $DIST/$BASENAME.tar.gz"
 fi
 
+# The Arch handoff keeps the same basename as the plain tarball in a separate directory.
+# Flatpak, OCI and direct tar consumers still get the original binary, not this launcher.
+if [[ -n "$ARCH_TAR_DIR" ]]; then
+  mkdir -p "$ARCH_TAR_DIR"
+  if [[ "$(cd "$ARCH_TAR_DIR" && pwd -P)" == "$(cd "$DIST" && pwd -P)" ]]; then
+    echo "error: the Arch tar directory must differ from the release directory" >&2
+    exit 2
+  fi
+  bash "$HERE/nightly-arch-tar.sh" "$STAGE/usr" "$WORK/arch-tar" "$ARCH_TAR_DIR" "$BASENAME"
+fi
+
 # ---- .deb / .rpm --------------------------------------------------------------------------------
 if has deb || has rpm; then
   command -v nfpm >/dev/null || { echo "error: nfpm not found (https://nfpm.goreleaser.com/install/)" >&2; exit 1; }
   export VERSION
   export NFPM_ARCH="$DEB_ARCH"
+  NFPM_STAGE="$STAGE"
+  export NFPM_NAME="effectz"
+  export NFPM_BIN="effectz"
+  export NFPM_CLI="effectz-cli"
+  if [[ "$IS_NIGHTLY" = 1 ]]; then
+    NIGHTLY_DESK_ID="$APP_ID.nightly-v1"
+    export NFPM_NAME="effectz-nightly"
+    export NFPM_BIN="effectz-nightly"
+    export NFPM_CLI="effectz-nightly-cli"
+    NFPM_STAGE="$WORK/nfpm-root"
+    rm -rf "$NFPM_STAGE"
+    cp -R "$STAGE" "$NFPM_STAGE"
+    install -Dm755 "$NFPM_STAGE/usr/bin/effectz" "$NFPM_STAGE/usr/lib/effectz-nightly/effectz"
+    # The Nightly build refuses EFFECTZ_CONFIG_DIR: every launcher passes the Launcher's own
+    # profile protocol instead, so settings, logs, plug-ins and caches are the Nightly's own.
+    # A version query and an already-selected profile pass through, because after `--` they are
+    # file names (the shared smoke test asks the Launcher form of the unpacked binary).
+    cat >"$NFPM_STAGE/usr/bin/$NFPM_BIN" <<'WRAPPER'
+#!/bin/sh
+set -eu
+real_bin=/usr/lib/effectz-nightly/effectz
+case "${1:-}" in
+  --version|-V|--launch-profile) exec "$real_bin" "$@" ;;
+esac
+profile_base="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
+exec "$real_bin" --launch-profile nightly-v1 --profile-root "$profile_base/effectz-nightly" -- "$@"
+WRAPPER
+    chmod 755 "$NFPM_STAGE/usr/bin/$NFPM_BIN"
+    rm -f "$NFPM_STAGE/usr/bin/effectz"
+    # The headless CLI has no launch profile; it keeps the settings-folder variable it honours.
+    install -Dm755 "$NFPM_STAGE/usr/bin/effectz-cli" "$NFPM_STAGE/usr/lib/effectz-nightly/effectz-cli"
+    rm -f "$NFPM_STAGE/usr/bin/effectz-cli"
+    cat >"$NFPM_STAGE/usr/bin/$NFPM_CLI" <<'CLI_WRAPPER'
+#!/bin/sh
+set -eu
+if [ -z "${EFFECTZ_CONFIG_DIR:-}" ]; then
+  profile_base="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
+  export EFFECTZ_CONFIG_DIR="$profile_base/effectz-nightly"
+fi
+exec /usr/lib/effectz-nightly/effectz-cli "$@"
+CLI_WRAPPER
+    chmod 755 "$NFPM_STAGE/usr/bin/$NFPM_CLI"
+    mv "$NFPM_STAGE/usr/share/doc/effectz" "$NFPM_STAGE/usr/share/doc/$NFPM_NAME"
+    sed -e "s#^Exec=effectz\([[:space:]]\|$\)#Exec=$NFPM_BIN\1#" \
+        -e "s|^TryExec=effectz$|TryExec=$NFPM_BIN|" \
+        -e "s|^Icon=$APP_ID$|Icon=$NIGHTLY_DESK_ID|" \
+        -e "s|^Name=EffectZ$|Name=EffectZ Nightly|" \
+        -e '/^MimeType=/d' \
+        "$NFPM_STAGE/usr/share/applications/$APP_ID.desktop" >"$NFPM_STAGE/usr/share/applications/$NIGHTLY_DESK_ID.desktop"
+    rm -f "$NFPM_STAGE/usr/share/applications/$APP_ID.desktop"
+    sed -e "s|<id>$APP_ID</id>|<id>$NIGHTLY_DESK_ID</id>|g" \
+        -e "s|<name>EffectZ</name>|<name>EffectZ Nightly</name>|g" \
+        -e "s|<launchable type=\"desktop-id\">$APP_ID.desktop</launchable>|<launchable type=\"desktop-id\">$NIGHTLY_DESK_ID.desktop</launchable>|g" \
+        -e "s|<icon type=\"stock\">$APP_ID</icon>|<icon type=\"stock\">$NIGHTLY_DESK_ID</icon>|g" \
+        -e "s|<binary>effectz</binary>|<binary>$NFPM_BIN</binary>|g" \
+        "$NFPM_STAGE/usr/share/metainfo/$APP_ID.metainfo.xml" >"$NFPM_STAGE/usr/share/metainfo/$NIGHTLY_DESK_ID.metainfo.xml"
+    rm -f "$NFPM_STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
+    rm -rf "$NFPM_STAGE/usr/share/mime"
+    NIGHTLY_ICON="$ROOT/assets/app-icon/effectz-nightly.png"
+    [[ -f "$NIGHTLY_ICON" ]] || NIGHTLY_ICON="$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png"
+    rm -rf "$NFPM_STAGE/usr/share/icons/hicolor"
+    install -Dm644 "$NIGHTLY_ICON" \
+      "$NFPM_STAGE/usr/share/icons/hicolor/256x256/apps/$NIGHTLY_DESK_ID.png"
+  fi
   # nfpm expands env vars in fields like `version` and `arch`, but not in `contents[].src`.
-  sed "s|\${STAGE}|$STAGE|g" "$HERE/nfpm.yaml" >"$WORK/nfpm.yaml"
+  DROP_LIB_TREE=
+  # shellcheck disable=SC2016
+  [[ -d "$NFPM_STAGE/usr/lib" ]] || DROP_LIB_TREE='\|^  - src: \${STAGE}/usr/lib/|,+2d;'
+  # shellcheck disable=SC2016
+  sed "${DROP_LIB_TREE}s|\${STAGE}|$NFPM_STAGE|g;s|\${NFPM_BIN}|$NFPM_BIN|g;s|\${NFPM_CLI}|$NFPM_CLI|g" "$HERE/nfpm.yaml" >"$WORK/nfpm.yaml"
   for fmt in deb rpm; do
     if has "$fmt"; then (cd "$ROOT" && nfpm package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$DIST/$BASENAME.$fmt"); fi
   done
@@ -103,27 +216,106 @@ fi
 
 # ---- AppImage -----------------------------------------------------------------------------------
 if has appimage; then
+  APPIMAGETOOL_VERSION=1.9.1
+  case "$ARCH" in
+    x86_64) APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+    aarch64) APPIMAGETOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
+    *) APPIMAGETOOL_SHA256="" ;;
+  esac
+  # appimagetool otherwise fetches the unpinned type2-runtime `continuous` build and embeds it.
+  APPIMAGE_RUNTIME_VERSION=20251108
+  case "$ARCH" in
+    x86_64) APPIMAGE_RUNTIME_SHA256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d ;;
+    aarch64) APPIMAGE_RUNTIME_SHA256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444 ;;
+    *) APPIMAGE_RUNTIME_SHA256="" ;;
+  esac
+  if [[ -z "$APPIMAGE_RUNTIME_SHA256" ]]; then
+    echo "no pinned AppImage runtime for $ARCH; build the AppImage on x86_64 or aarch64" >&2
+    exit 2
+  fi
   APPDIR="$WORK/EffectZ.AppDir"
   cp -R "$STAGE" "$APPDIR"
-  mv "$APPDIR/usr/share/doc" "$WORK/doc-unused"
-  ln -s usr/bin/effectz "$APPDIR/AppRun"
-  cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
-  cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
-  ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
+  # Keep sctk-adwaita's MIT notice in the AppImage.
+  install -Dm644 "$ROOT/NOTICE" "$APPDIR/usr/share/doc/effectz/NOTICE"
+  if [[ "$IS_NIGHTLY" = 1 ]]; then
+    # A script, not the stable symlink: the AppImage starts the GUI through the Nightly profile.
+    cat >"$APPDIR/AppRun" <<'APPRUN'
+#!/bin/sh
+set -eu
+here="$(dirname "$0")"
+real_bin="$here/usr/bin/effectz"
+case "${1:-}" in
+  --version|-V|--launch-profile) exec "$real_bin" "$@" ;;
+esac
+profile_base="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
+exec "$real_bin" --launch-profile nightly-v1 --profile-root "$profile_base/effectz-nightly" -- "$@"
+APPRUN
+    chmod 755 "$APPDIR/AppRun"
+    # The headless CLI keeps the settings-folder variable, which is the only profile it honours.
+    install -Dm755 "$APPDIR/usr/bin/effectz-cli" "$APPDIR/usr/lib/effectz-nightly/effectz-cli"
+    cat >"$APPDIR/usr/bin/effectz-cli" <<'APPRUN_CLI'
+#!/bin/sh
+set -eu
+if [ -z "${EFFECTZ_CONFIG_DIR:-}" ]; then
+  profile_base="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
+  export EFFECTZ_CONFIG_DIR="$profile_base/effectz-nightly"
+fi
+exec "$(dirname "$0")/../lib/effectz-nightly/effectz-cli" "$@"
+APPRUN_CLI
+    chmod 755 "$APPDIR/usr/bin/effectz-cli"
+    APPIMAGE_ID="$APP_ID.nightly-v1"
+    sed -e "s|^Icon=$APP_ID$|Icon=$APPIMAGE_ID|" \
+        -e "s|^Name=EffectZ$|Name=EffectZ Nightly|" \
+        -e '/^MimeType=/d' \
+        "$APPDIR/usr/share/applications/$APP_ID.desktop" >"$APPDIR/usr/share/applications/$APPIMAGE_ID.desktop"
+    rm -f "$APPDIR/usr/share/applications/$APP_ID.desktop"
+    cp "$APPDIR/usr/share/applications/$APPIMAGE_ID.desktop" "$APPDIR/$APPIMAGE_ID.desktop"
+    NIGHTLY_ICON="$ROOT/assets/app-icon/effectz-nightly.png"
+    [[ -f "$NIGHTLY_ICON" ]] || NIGHTLY_ICON="$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png"
+    rm -rf "$APPDIR/usr/share/icons/hicolor"
+    install -Dm644 "$NIGHTLY_ICON" \
+      "$APPDIR/usr/share/icons/hicolor/256x256/apps/$APPIMAGE_ID.png"
+    cp "$NIGHTLY_ICON" "$APPDIR/$APPIMAGE_ID.png"
+    ln -s "$APPIMAGE_ID.png" "$APPDIR/.DirIcon"
+  else
+    ln -s usr/bin/effectz "$APPDIR/AppRun"
+    cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
+    cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
+    ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
+  fi
 
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
-  if [ -z "$TOOL" ]; then
-    TOOL="$CARGO_TARGET_DIR/appimagetool-$ARCH.AppImage"
-    if [ ! -x "$TOOL" ]; then
-      curl -fsSL -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
-      chmod +x "$TOOL"
+  if [[ -z "$TOOL" ]]; then
+    if [[ -z "$APPIMAGETOOL_SHA256" ]]; then
+      echo "no pinned appimagetool for $ARCH; set APPIMAGETOOL or put appimagetool on PATH" >&2
+      exit 2
     fi
+    TOOL="$CARGO_TARGET_DIR/appimagetool-$APPIMAGETOOL_VERSION-$ARCH.AppImage"
+    if [[ ! -x "$TOOL" ]]; then
+      download="$TOOL.download"
+      curl --proto '=https' -fsSL -o "$download" \
+        "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$ARCH.AppImage"
+      verify_sha256 "$APPIMAGETOOL_SHA256" "$download"
+      chmod 755 "$download"
+      mv "$download" "$TOOL"
+    fi
+    verify_sha256 "$APPIMAGETOOL_SHA256" "$TOOL"
   fi
+  RUNTIME="$CARGO_TARGET_DIR/appimage-runtime-$APPIMAGE_RUNTIME_VERSION-$ARCH"
+  if [[ ! -f "$RUNTIME" ]]; then
+    download="$RUNTIME.download"
+    curl --proto '=https' -fsSL -o "$download" \
+      "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-$ARCH"
+    verify_sha256 "$APPIMAGE_RUNTIME_SHA256" "$download"
+    mv "$download" "$RUNTIME"
+  fi
+  verify_sha256 "$APPIMAGE_RUNTIME_SHA256" "$RUNTIME"
   # Absolute, because appimagetool runs in $DIST below (CARGO_TARGET_DIR or APPIMAGETOOL may be
   # relative).
   OUT="$(cd "$DIST" && pwd)/$BASENAME.AppImage"
   APPDIR="$(cd "$APPDIR" && pwd)"
   TOOL="$(cd "$(dirname "$TOOL")" && pwd)/$(basename "$TOOL")"
+  RUNTIME="$(cd "$(dirname "$RUNTIME")" && pwd)/$(basename "$RUNTIME")"
   # A .zsync left by an earlier run would hide a missing zsyncmake and describe another file.
   rm -f "$OUT.zsync"
   # Update information: AppImageUpdate, AppImageLauncher and the like read it from the file and
@@ -131,22 +323,31 @@ if has appimage; then
   # each AppImage on GitHub Releases. `latest` is the newest published release that is not a
   # pre-release. A fork's builds point at its own releases through GITHUB_REPOSITORY.
   REPO="${GITHUB_REPOSITORY:-danish0440/effectz}"
-  UPDATE_INFO="gh-releases-zsync|${REPO%%/*}|${REPO#*/}|latest|effectz-*-linux-$ARCH.AppImage.zsync"
+  UPDATE_ARGS=()
+  if [[ "$IS_NIGHTLY" = 0 ]]; then
+    UPDATE_INFO="gh-releases-zsync|${REPO%%/*}|${REPO#*/}|latest|effectz-*-linux-$ARCH.AppImage.zsync"
+    UPDATE_ARGS=(-u "$UPDATE_INFO")
+  else
+    # Nightly releases are GitHub pre-releases (`latest` only selects stable releases), so point
+    # zsync update metadata at pre-release tags matching `-nightly` rather than stable `latest`.
+    UPDATE_INFO="gh-releases-zsync|${REPO%%/*}|${REPO#*/}|latest-pre|effectz-*-nightly*-linux-$ARCH.AppImage.zsync"
+    UPDATE_ARGS=(-u "$UPDATE_INFO")
+  fi
   # Extract-and-run: works without FUSE (containers, CI). The output embeds the static runtime,
   # so users don't need libfuse2 either. With zsyncmake on the host (CI installs the zsync
   # package) appimagetool also writes the .zsync, into its working directory, hence the cd.
-  (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream -u "$UPDATE_INFO" "$APPDIR" "$OUT")
+  (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream --runtime-file "$RUNTIME" "${UPDATE_ARGS[@]}" "$APPDIR" "$OUT")
   echo "wrote $OUT"
-  if [ -s "$OUT.zsync" ]; then
+  if [[ -s "$OUT.zsync" ]]; then
     echo "wrote $OUT.zsync"
   else
     warn "zsyncmake not found, so $OUT.zsync was not written; AppImage delta updates need it"
   fi
 fi
 
-if [ -z "${CROSS_TARGET:-}" ]; then
+if [[ -z "${CROSS_TARGET:-}" ]]; then
   "$STAGE/usr/bin/effectz-cli" --version
-elif [ -n "${EMULATOR:-}" ]; then
+elif [[ -n "${EMULATOR:-}" ]]; then
   "$EMULATOR" "$STAGE/usr/bin/effectz-cli" --version
 fi
 echo "==> done"

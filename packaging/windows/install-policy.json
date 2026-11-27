@@ -1,0 +1,44 @@
+{
+  "id": "effectz",
+  "name": "EffectZ",
+  "upgradeCode": "AACA8593-C6ED-40A8-BA6C-CB325D8529F9",
+  "sources": [
+    "effectz.wxs",
+    "installer-ui.wxs"
+  ],
+  "icon": "assets/app-icon/effectz.ico",
+  "localization": [],
+  "extensions": [],
+  "payloads": [
+    "NOTICE",
+    "effectz-cli.exe",
+    "effectz.exe"
+  ],
+  "registry": [
+    [
+      "-1",
+      "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\effectz.exe",
+      "",
+      "[#EffectzExe]"
+    ],
+    [
+      "-1",
+      "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\effectz.exe",
+      "Path",
+      "[INSTALLFOLDER]"
+    ],
+    [
+      "-1",
+      "Software\\EffectZ",
+      "DesktopShortcut",
+      "[DESKTOPSHORTCUT]"
+    ],
+    [
+      "-1",
+      "Software\\EffectZ",
+      "DesktopShortcut",
+      "1"
+    ]
+  ],
+  "mode": "dualScope"
+}
