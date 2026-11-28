@@ -1,0 +1,9 @@
+asset:        effectz-nightly.ico
+title:        EffectZ nightly Windows icon, 16-256 px
+author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: assets/app-icon/LICENSE.txt
+added:        2026-11-24 by EffectZ contributors (Claude agent, nightly icon derivatives)
+notes:        Nine PNG frames scaled from assets/app-icon/effectz-nightly.png; packed into one ICO (assets/app-icon/nightly-provenance.json).
+
