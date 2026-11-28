@@ -11,7 +11,8 @@ use crate::{EffectzApp, widgets};
 
 pub fn placeholder(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect, p: PanelKind) {
     let t = app.tokens;
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, tr_args("{} — coming soon", &[&(p.title())]), Tokens::ui(12.0), t.text_faint);
+    let name = crate::i18n::label(app, "window.panel", p.title());
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, tr_args("{} — coming soon", &[&name]), Tokens::ui(12.0), t.text_faint);
 }
 
 /// Preview panel: transport controls, the shortcut whose options are shown, and that
@@ -21,12 +22,11 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     use effectz_engine::preview::{PlayFrom, PreviewRange, PreviewResolution, PreviewShortcut};
     let t = app.tokens;
     let ctx = ui.ctx().clone();
-    let p = ui.painter().with_clip_rect(rect);
     // The panel scrolls when it is shorter than its controls (the default workspace shows just
     // the transport row, as in After Effects).
-    let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("preview-scroll"), rect);
-    let panel_clip = ui.clip_rect();
-    ui.set_clip_rect(rect.intersect(panel_clip));
+    let scroll = widgets::PanelScroll::begin(ui, egui::Id::unique("preview-scroll"), rect);
+    let rect = scroll.content;
+    let p = ui.painter().with_clip_rect(rect);
     let y = rect.min.y + 12.0 - scroll.offset;
     let bw = 30.0;
     let total = bw * 5.0 + 16.0;
@@ -42,7 +42,10 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     for (icon, cmd, tip) in buttons {
         let r = Rect::from_min_size(pos2(x, y), vec2(bw, 28.0));
         let icon = if cmd == "playback.toggle" && app.playback.playing { Icon::Pause } else { icon };
-        if widgets::icon_button(ui, r, icon, cmd == "playback.toggle" && app.playback.playing, &t, egui::Id::new(("pv", cmd))).on_hover_text(tip).clicked() {
+        if widgets::icon_button(ui, r, icon, cmd == "playback.toggle" && app.playback.playing, &t, egui::Id::unique(("pv", cmd)))
+            .on_hover_text(tr(tip))
+            .clicked()
+        {
             // The play button plays with the options of the shortcut shown below.
             let params = if cmd == "playback.toggle" { json!({"shortcut": current.id()}) } else { json!({}) };
             let _ = crate::menus::invoke(app, &ctx, cmd, params);
@@ -61,7 +64,7 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     let mut yy = y + 46.0;
 
     // Shortcut.
-    label(yy, "Shortcut");
+    label(yy, tr("Shortcut"));
     let names: Vec<String> = PreviewShortcut::ALL.iter().map(|s| s.label().to_string()).collect();
     if let Some(i) = dropdown_row(
         app,
@@ -91,14 +94,14 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         let row = if i < 4 { i / 2 } else { i - 2 };
         let cx = x0 + col as f32 * 110.0 - 2.0;
         let cy = yy + row as f32 * 22.0;
-        if check_row(app, ui, &p, pos2(cx, cy), key, text, on) {
+        if check_row(app, ui, &p, pos2(cx, cy), key, tr(text), on) {
             changes.push(json!({"shortcut": current.id(), key: !on}));
         }
     }
     yy += 4.0 * 22.0 + 6.0;
 
     // Range (and the pre/post-roll of Play Around Current Time).
-    label(yy, "Range");
+    label(yy, tr("Range"));
     let ranges: Vec<String> = PreviewRange::ALL.iter().map(|r| r.label().to_string()).collect();
     let range_ids = ["workArea", "workAreaExtended", "entireDuration", "aroundCurrentTime"];
     if let Some(i) = dropdown_row(
@@ -116,8 +119,15 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     if o.range == PreviewRange::AroundCurrentTime {
         for (k, (key, text, v)) in [("preRoll", "Pre-roll", o.pre_roll), ("postRoll", "Post-roll", o.post_roll)].into_iter().enumerate() {
             let lx = xv + k as f32 * 100.0;
-            p.text(pos2(lx, yy), Align2::LEFT_CENTER, text, Tokens::ui(11.5), t.text_dim);
-            let (r, nv, _) = widgets::hot_number_at(ui, pos2(lx + 52.0, yy - 9.0), egui::Id::new(("pv-roll", key)), v, 0.05, (0.0, 600.0), 1, "s", &t);
+            p.text(pos2(lx, yy), Align2::LEFT_CENTER, tr(text), Tokens::ui(11.5), t.text_dim);
+            let (r, nv, _) = widgets::hot_number_at(
+                ui,
+                pos2(lx + 52.0, yy - 9.0),
+                egui::Id::unique(("pv-roll", key)),
+                v,
+                &widgets::HotSpec { speed: 0.05, range: (0.0, 600.0), decimals: 1, suffix: "s" },
+                &t,
+            );
             app.auto.add(&format!("preview.{key}"), r, text);
             if let Some(nv) = nv {
                 changes.push(json!({"shortcut": current.id(), key: nv}));
@@ -127,7 +137,7 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     }
 
     // Play From.
-    label(yy, "Play From");
+    label(yy, tr("Play From"));
     let froms: Vec<String> = PlayFrom::ALL.iter().map(|f| f.label().to_string()).collect();
     if let Some(i) = dropdown_row(
         app,
@@ -144,7 +154,7 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
 
     // Frame Rate, Skip, Resolution.
     let comp_fps = app.session.active_comp().map(|c| c.frame_rate.as_f64());
-    label(yy, "Frame Rate");
+    label(yy, tr("Frame Rate"));
     const RATES: [f64; 12] = [8.0, 10.0, 12.0, 12.5, 15.0, 23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 60.0];
     let auto = format!("({:.2}) Auto", comp_fps.unwrap_or(0.0));
     let mut rates = vec![auto.clone()];
@@ -160,13 +170,20 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     }
     let sx = xv + 106.0;
     p.text(pos2(sx, yy), Align2::LEFT_CENTER, tr("Skip"), Tokens::ui(12.0), t.text_dim);
-    let (r, nv, _) = widgets::hot_number_at(ui, pos2(sx + 30.0, yy - 9.0), egui::Id::new("pv-skip"), o.skip as f64, 0.1, (0.0, 99.0), 0, "", &t);
+    let (r, nv, _) = widgets::hot_number_at(
+        ui,
+        pos2(sx + 30.0, yy - 9.0),
+        egui::Id::unique("pv-skip"),
+        o.skip as f64,
+        &widgets::HotSpec { speed: 0.1, range: (0.0, 99.0), decimals: 0, suffix: "" },
+        &t,
+    );
     app.auto.add("preview.skip", r, "Skip");
     if let Some(nv) = nv {
         changes.push(json!({"shortcut": current.id(), "skip": nv.round() as u32}));
     }
     yy += 24.0;
-    label(yy, "Resolution");
+    label(yy, tr("Resolution"));
     let ress: Vec<String> = PreviewResolution::ALL.iter().map(|r| r.label().to_string()).collect();
     let res_ids = ["auto", "full", "half", "third", "quarter", "custom"];
     if let Some(i) = dropdown_row(
@@ -181,15 +198,21 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         changes.push(json!({"shortcut": current.id(), "resolution": res_ids[i]}));
     }
     if o.resolution == PreviewResolution::Custom {
-        let (r, nv, _) =
-            widgets::hot_number_at(ui, pos2(xv + 106.0, yy - 9.0), egui::Id::new("pv-custom-res"), o.custom_resolution as f64, 0.1, (1.0, 40.0), 0, "", &t);
+        let (r, nv, _) = widgets::hot_number_at(
+            ui,
+            pos2(xv + 106.0, yy - 9.0),
+            egui::Id::unique("pv-custom-res"),
+            o.custom_resolution as f64,
+            &widgets::HotSpec { speed: 0.1, range: (1.0, 40.0), decimals: 0, suffix: "" },
+            &t,
+        );
         app.auto.add("preview.customResolution", r, "Custom Resolution");
         if let Some(nv) = nv {
             changes.push(json!({"shortcut": current.id(), "customResolution": nv.round() as u32}));
         }
     }
     yy += 24.0;
-    if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "fullScreen", "Full Screen", o.full_screen) {
+    if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "fullScreen", tr("Full Screen"), o.full_screen) {
         changes.push(json!({"shortcut": current.id(), "fullScreen": !o.full_screen}));
     }
     yy += 24.0;
@@ -197,7 +220,7 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     // What stopping does.
     p.text(pos2(x0, yy), Align2::LEFT_CENTER, tr_args("On ({}) stop:", &[&(current.label())]), Tokens::ui(11.5), t.text_dim);
     yy += 20.0;
-    if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "playCachedFrames", "If caching, play cached frames", o.play_cached_frames) {
+    if check_row(app, ui, &p, pos2(x0 - 2.0, yy), "playCachedFrames", tr("If caching, play cached frames"), o.play_cached_frames) {
         changes.push(json!({"shortcut": current.id(), "playCachedFrames": !o.play_cached_frames}));
     }
     yy += 22.0;
@@ -217,7 +240,7 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
             Some(pl) => pl,
             None => effectz_engine::preview::plan(&o, &c, app.session.time()),
         };
-        let cached_set = app.frames.cached_frames(&app.shown_series(cid));
+        let cached_set = app.frames.cached_frames(&app.preview_series(cid, &o));
         let total = pl.frames().count();
         let cached = pl.frames().filter(|f| cached_set.binary_search(f).is_ok()).count();
         let bar = Rect::from_min_size(pos2(rect.min.x + 12.0, yy), vec2(rect.width() - 24.0, 6.0));
@@ -227,7 +250,6 @@ pub fn preview(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         let status = if app.playback.playing && app.playback.caching { " — caching before playback" } else { "" };
         p.text(pos2(bar.min.x, bar.max.y + 12.0), Align2::LEFT_CENTER, format!("{cached} / {total} frames cached{status}"), Tokens::ui(11.0), t.text_faint);
     }
-    ui.set_clip_rect(panel_clip);
     let content = yy + 30.0 - (rect.min.y - scroll.offset);
     scroll.end(ui, &mut app.auto, "preview.scroll", content, &t);
 }
@@ -240,7 +262,7 @@ fn fmt_rate(r: f64) -> String {
 fn check_row(app: &mut EffectzApp, ui: &mut egui::Ui, p: &egui::Painter, at: egui::Pos2, key: &str, text: &str, on: bool) -> bool {
     let t = app.tokens;
     let r = Rect::from_min_size(pos2(at.x, at.y - 8.0), vec2(16.0, 16.0));
-    let clicked = widgets::checkbox(ui, r, on, &t, egui::Id::new(("pv-check", key))).clicked();
+    let clicked = widgets::checkbox(ui, r, on, &t, egui::Id::unique(("pv-check", key))).changed();
     p.text(pos2(r.max.x + 5.0, at.y), Align2::LEFT_CENTER, text, Tokens::ui(12.0), t.text);
     app.auto.add(&format!("preview.{key}"), r, text);
     clicked
@@ -250,7 +272,7 @@ fn check_row(app: &mut EffectzApp, ui: &mut egui::Ui, p: &egui::Painter, at: egu
 /// returns the chosen index.
 fn dropdown_row(app: &mut EffectzApp, ui: &mut egui::Ui, r: Rect, key: &str, text: &str, items: &[String], current: Option<usize>) -> Option<usize> {
     let t = app.tokens;
-    let pid = egui::Id::new(("pv-pop", key));
+    let pid = egui::Id::unique(("pv-pop", key));
     if widgets::dropdown(ui, r, text, &t, pid.with("btn")).clicked() {
         let open: bool = ui.data(|d| d.get_temp(pid.with("open")).unwrap_or(false));
         ui.data_mut(|d| d.insert_temp(pid.with("open"), !open));
@@ -318,7 +340,7 @@ pub fn audio(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         let clip = Rect::from_min_max(pos2(bar.min.x, top - 14.0), pos2(bar.max.x, top - 4.0));
         p.rect_filled(clip, 1.0, if m.clipped[c] { red } else { t.field_bg });
         let id = if c == 0 { "audio.clipLeft" } else { "audio.clipRight" };
-        if ui.interact(clip, egui::Id::new(id), Sense::click()).clicked() {
+        if ui.interact(clip, egui::Id::unique(id), Sense::click()).clicked() {
             app.meter.clipped[c] = false;
         }
         app.auto.add(id, clip, if c == 0 { "Left clip indicator" } else { "Right clip indicator" });
@@ -332,46 +354,131 @@ pub fn audio(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         p.text(pos2(sx + 2.0, y), Align2::LEFT_CENTER, format!("{db:.1}"), Tokens::ui(10.0), t.text_faint);
     }
     p.text(pos2(sx + 30.0, top - 9.0), Align2::LEFT_CENTER, "dB", Tokens::ui(10.0), t.text_dim);
-    // Selected layer's Audio Levels.
+    // Selected layer's Audio Levels: "Left" / "Right" and the editable "-12.0 dB" fields need
+    // about 110 px; narrower, "L" / "R" (down to 80 px, below which the section is left out).
     let lx = rect.min.x + 120.0;
     if rect.max.x - lx < 80.0 {
         return;
     }
-    let sel = app.session.state.selected_layers.first().copied();
-    let levels = sel.and_then(|id| {
-        let c = app.session.active_comp()?;
-        let l = c.layer(id)?;
-        let pr = l.props.sub("audio")?.get("levels")?;
-        Some((l.name.clone(), pr.value.as_vec2()))
-    });
-    match levels {
-        Some((name, [a, b])) => {
-            p.text(pos2(lx, top - 9.0), Align2::LEFT_CENTER, &name, Tokens::ui(11.0), t.text_dim);
-            for (i, (k, v)) in [("Left", a), ("Right", b)].into_iter().enumerate() {
-                let y = top + 12.0 + i as f32 * 20.0;
-                p.text(pos2(lx, y), Align2::LEFT_CENTER, k, Tokens::ui(12.0), t.text_dim);
-                p.text(pos2(lx + 44.0, y), Align2::LEFT_CENTER, format!("{v:+.1} dB"), Tokens::ui(12.0), t.hot_text);
-            }
-        }
-        None => {
-            p.text(pos2(lx, top + 12.0), Align2::LEFT_CENTER, tr("No audio layer selected"), Tokens::ui(11.0), t.text_faint);
-        }
-    }
+    audio_levels(app, ui, &p, pos2(lx, top), rect.max.x - lx < 110.0);
     if app.meter.active() || app.audio.is_some() {
         ui.ctx().request_repaint();
     }
 }
 
+/// The Audio panel's level fields at `at` (left, top of the meters): the selected layer's Audio
+/// Levels at the current time, keyframes (read at layer time) and expression included, as the
+/// Timeline and Effect Controls show them (#3227). An edit runs the Timeline's `prop.set`: on a
+/// keyframed property it keys the current time; a scrub is one undo step; with the Timeline's
+/// Link Channels on, the other channel moves by the same dB (#2485). `compact` labels the channels
+/// "L" / "R" to fit a narrow panel.
+fn audio_levels(app: &mut EffectzApp, ui: &mut egui::Ui, p: &egui::Painter, at: egui::Pos2, compact: bool) {
+    let t = app.tokens;
+    let (lx, top) = (at.x, at.y);
+    let comp = app.session.active_comp_arc();
+    let selected = app.session.state.selected_layers.first().copied();
+    let levels = match (comp.as_deref(), app.session.active_comp_id()) {
+        (Some(comp), Some(cid)) => selected.and_then(|id| comp.layer(id)).and_then(|layer| {
+            let pr = layer.props.sub("audio")?.get("levels")?;
+            let project = app.session.project.clone();
+            let expr = app.session.expr.clone();
+            // The session's footage source, as the render and `prop.get` use it, so an expression
+            // that samples footage (`sampleImage`) shows what it evaluates to (#3234).
+            let footage = app.session.footage.clone();
+            let ectx = effectz_engine::render::EvalCtx {
+                project: &project,
+                comp_id: cid,
+                comp,
+                time: app.session.time(),
+                expr: expr.as_deref(),
+                footage: Some(footage.as_ref()),
+                property_overrides: &[],
+                media_overrides: &[],
+                reads: None,
+            };
+            // The keyframed value before the expression: what `prop.set` writes and scrubs from.
+            let raw = pr.value_at(layer.layer_time(ectx.time)).as_vec2();
+            Some((layer.id.0, pr.uid, pr.has_expression(), layer.name.as_str(), ectx.value(layer, pr).as_vec2(), raw))
+        }),
+        _ => None,
+    };
+    let Some((lid, uid, driven, name, values, raw)) = levels else {
+        p.text(pos2(lx, top + 12.0), Align2::LEFT_CENTER, tr("No audio layer selected"), Tokens::ui(11.0), t.text_faint);
+        return;
+    };
+    p.text(pos2(lx, top - 9.0), Align2::LEFT_CENTER, name, Tokens::ui(11.0), t.text_dim);
+    // The values themselves: red while an expression drives the property (#1306).
+    let vt = t.for_value(driven);
+    // As in the Timeline, a scrub moves every selected layer by the same change and a typed value
+    // sets the typed channel.
+    let scrub = ui.ctx().dragged_id().is_some() && ui.input(|i| i.pointer.is_decidedly_dragging());
+    // Proportional Scrubbing (Ctrl+Alt / Cmd+Opt): the change spreads over the selected layers by
+    // selection order, as in the Timeline.
+    let proportional = scrub && ui.input(|i| widgets::proportional_scrub(i.modifiers));
+    // Linked channels move together; Alt edits one alone (Ctrl+Alt is a proportional scrub).
+    let linked = app.ui.timeline.is_linked(uid, false) && !ui.input(|i| i.modifiers.alt && !widgets::proportional_scrub(i.modifiers));
+    let mut actions: Vec<serde_json::Value> = vec![];
+    // A scrub ended this frame: the edits below still join its undo step, the next scrub starts
+    // another (#3234 review).
+    let mut released = false;
+    let (channels, field_x) = if compact { (["L", "R"], 14.0) } else { (["Left", "Right"], 44.0) };
+    for (d, (k, v)) in channels.into_iter().zip(values).enumerate() {
+        let y = top + 12.0 + d as f32 * 20.0;
+        p.text(pos2(lx, y), Align2::LEFT_CENTER, k, Tokens::ui(12.0), t.text_dim);
+        let spec = widgets::HotSpec { speed: 1.0, range: (-1e9, 1e9), decimals: 1, suffix: " dB" };
+        let (r, nv, done) = widgets::hot_number_at(ui, pos2(lx + field_x, y - 9.0), egui::Id::unique(("audio-level", uid, d)), v, &spec, &vt);
+        released |= done;
+        app.auto.add(if d == 0 { "audio.levelLeft" } else { "audio.levelRight" }, r, &format!("{v:.1} dB"));
+        if let Some(nv) = nv {
+            let merge = format!("audio-levels-{uid}");
+            let mut params = json!({"layer": lid, "prop": uid, "merge": merge, "selected": true, "offset": scrub, "proportional": proportional, "dims": [d]});
+            let value = if linked {
+                // The other channel follows by each layer's own change, keeping its balance.
+                params["follow"] = json!([usize::from(d == 0)]);
+                widgets::shifted(&values, d, nv)
+            } else {
+                let mut value = values.to_vec();
+                if let Some(slot) = value.get_mut(d) {
+                    *slot = nv;
+                }
+                value
+            };
+            // The fields show the value after the expression; `prop.set` writes (and a scrub takes
+            // its change from) the keyframed value under it. So each channel is that value moved
+            // by the change the edit makes to what is shown (every selected layer then moves by
+            // it), except a typed channel, which is set as typed.
+            let value: Vec<f64> =
+                value.iter().zip(values.iter().zip(raw)).enumerate().map(|(e, (n, (shown, r)))| if e == d && !scrub { *n } else { r + (n - shown) }).collect();
+            params["value"] = json!(value);
+            actions.push(params);
+        }
+    }
+    let ctx = ui.ctx().clone();
+    for params in actions {
+        if let Err(e) = crate::menus::invoke(app, &ctx, "prop.set", params) {
+            app.ui.status = e;
+        }
+    }
+    if released {
+        app.session.history.merge_key = None;
+    }
+}
+
+/// The History panel: every state of the session's branching history, indented under the state it
+/// grew from, with the current state highlighted and future/abandoned branches dimmed. Only the
+/// rows in view are drawn; the current state is scrolled into view when it changes. Clicking a
+/// state runs `edit.history.goto`, reporting a failure in `app.ui.status`.
 pub fn history(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
-    let p = ui.painter().with_clip_rect(rect);
     // The branching history (EffectZ's History panel): every state, branches indented under
     // the state they grew from; click any state to go there (`edit.history.goto`).
     let nodes = app.session.history_tree();
     let row_h = 22.0;
     let cur = nodes.iter().position(|n| n.current).unwrap_or(0);
-    let scroll_id = egui::Id::new("history-scroll");
+    let scroll_id = egui::Id::unique("history-scroll");
     let mut scroll = widgets::PanelScroll::begin(ui, scroll_id, rect);
+    let rect = scroll.content;
+    let p = ui.painter().with_clip_rect(rect);
     // The current state scrolls into view when it changes (undo, redo, a new step).
     if ui.data(|d| d.get_temp::<usize>(scroll_id.with("current"))) != Some(cur) {
         ui.data_mut(|d| d.insert_temp(scroll_id.with("current"), cur));
@@ -390,7 +497,7 @@ pub fn history(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     for n in nodes.iter().skip(first).take(visible) {
         let r = Rect::from_min_size(pos2(rect.min.x, y), vec2(rect.width(), row_h));
         y += row_h;
-        let resp = ui.interact(r, egui::Id::new(("hist", n.id.as_str())), Sense::click());
+        let resp = ui.interact(r, egui::Id::unique(("hist", n.id.as_str())), Sense::click());
         if n.current {
             p.rect_filled(r, 0.0, t.row_selected);
         } else if resp.hovered() {
@@ -419,11 +526,15 @@ pub fn history(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     }
 }
 
+/// The Markers panel: the active comp's markers in time order, each with its timecode and comment;
+/// clicking a row moves the current time to that marker. Shows a hint when the comp has none and
+/// draws nothing without an active comp.
 pub fn markers(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
-    let p = ui.painter().with_clip_rect(rect);
     let Some(c) = app.session.active_comp_arc() else { return };
-    let scroll = widgets::PanelScroll::begin(ui, egui::Id::new("markers-scroll"), rect);
+    let scroll = widgets::PanelScroll::begin(ui, egui::Id::unique("markers-scroll"), rect);
+    let rect = scroll.content;
+    let p = ui.painter().with_clip_rect(rect);
     let mut y = rect.min.y + 8.0 - scroll.offset;
     if c.markers.is_empty() {
         p.text(rect.center(), Align2::CENTER_CENTER, tr("No composition markers"), Tokens::ui(12.0), t.text_faint);
@@ -437,7 +548,7 @@ pub fn markers(app: &mut EffectzApp, ui: &mut egui::Ui, rect: Rect) {
         let tc = crate::panels::timecode(&app.session, &c, m.time);
         p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, tc, Tokens::mono(11.5), t.timecode);
         p.text(pos2(r.min.x + 120.0, r.center().y), Align2::LEFT_CENTER, &m.comment, Tokens::ui(12.0), t.text);
-        if ui.interact(r, egui::Id::new(("mk", m.time.0)), Sense::click()).clicked() {
+        if ui.interact(r, egui::Id::unique(("mk", m.time.0)), Sense::click()).clicked() {
             app.session.set_time(m.time);
         }
     }

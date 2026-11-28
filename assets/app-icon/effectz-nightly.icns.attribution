@@ -1,0 +1,9 @@
+asset:        effectz-nightly.icns
+title:        EffectZ nightly macOS bundle icon
+author:       EffectZ contributors (drawing by the project owner in ArtCraft)
+source:       original work
+license:      MIT OR Apache-2.0
+license-file: assets/app-icon/LICENSE.txt
+added:        2026-11-24 by EffectZ contributors (Claude agent, nightly icon derivatives)
+notes:        Eleven PNG slots from assets/app-icon/effectz-nightly-1024.png and -macos-512.png; packed into one ICNS (assets/app-icon/nightly-provenance.json).
+

@@ -1,0 +1,800 @@
+//! Layer ▸ Mask and Shape Path (RotoBezier, Convert To Bezier Path, Group / Ungroup Shapes, Set
+//! First Vertex, Free Transform Points) and Layer ▸ Mask ▸ Motion Blur, Feather Falloff and Hide
+//! Locked Masks.
+
+use effectz_keyframe::{ShapePath, Value as KV};
+use effectz_project::build::{self, Ids};
+use effectz_project::{FeatherFalloff, GroupKind, ItemId, LayerId, LayerSource, MaskMotionBlur, Node, PropGroup, Uid};
+use effectz_render::EvalCtx;
+use serde_json::{Value, json};
+
+use super::layer_menu::target_masks;
+use super::{CommandSpec, b_p, bad, comp_id, f_p, has_comp, has_layers, layer_mut, layer_p, layers_p, merge_p, str_p, unlocked};
+use crate::{EngineError, Result, Session, VertexRef, cmd};
+
+mod closed;
+pub(crate) use closed::selected_paths_closed;
+
+// ---------------------------------------------------------------- RotoBezier
+
+/// Automatic (RotoBezier) tangents: each vertex's tangents follow the line through its
+/// neighbours, a third of the way to them (Catmull-Rom); open ends get none.
+pub(crate) fn roto_smooth(sp: &mut ShapePath) {
+    let n = sp.vertices.len();
+    sp.in_tangents.resize(n, [0.0; 2]);
+    sp.out_tangents.resize(n, [0.0; 2]);
+    for i in 0..n {
+        let (prev, next) = if sp.closed {
+            ((i + n - 1) % n, (i + 1) % n)
+        } else if i == 0 || i + 1 == n {
+            sp.in_tangents[i] = [0.0; 2];
+            sp.out_tangents[i] = [0.0; 2];
+            continue;
+        } else {
+            (i - 1, i + 1)
+        };
+        let (a, b) = (sp.vertices[prev], sp.vertices[next]);
+        let d = [(b[0] - a[0]) / 6.0, (b[1] - a[1]) / 6.0];
+        sp.out_tangents[i] = d;
+        sp.in_tangents[i] = [-d[0], -d[1]];
+    }
+}
+
+/// Whether a mask uses RotoBezier tangents.
+pub(crate) fn is_roto(g: &PropGroup) -> bool {
+    matches!(g.kind, GroupKind::Mask { roto_bezier: true, .. })
+}
+
+/// Apply `f` to a mask path's static value and every key.
+fn map_path(g: &mut PropGroup, f: &dyn Fn(&mut ShapePath)) {
+    let Some(pr) = g.get_mut("path") else { return };
+    if let KV::Path(sp) = &mut pr.value {
+        f(sp);
+    }
+    for k in &mut pr.keys {
+        if let KV::Path(sp) = &mut k.value {
+            f(sp);
+        }
+    }
+}
+
+/// Mask targets: masks of the selected vertices, else [`target_masks`].
+fn masks_for(s: &Session, p: &Value) -> Result<(ItemId, Vec<(LayerId, Uid)>)> {
+    if p.get("mask").is_none() && p.get("layer").is_none() && !s.state.selected_vertices.is_empty() {
+        let cid = s.active_comp_id().ok_or(EngineError::NoComp)?;
+        let mut v: Vec<(LayerId, Uid)> = s.state.selected_vertices.iter().map(|v| (v.layer, v.mask)).collect();
+        v.sort();
+        v.dedup();
+        return Ok((cid, v));
+    }
+    // A shape layer's Path item by uid.
+    if let Some(uid) = p.get("mask").and_then(Value::as_u64) {
+        let (cid, lid) = layer_p(s, p, "path")?;
+        if s.project.comp(cid).and_then(|c| c.layer(lid)).and_then(|l| l.props.find_group(uid)).is_some_and(|g| g.match_id == "path") {
+            return Ok((cid, vec![(lid, uid)]));
+        }
+    }
+    target_masks(s, p)
+}
+
+fn edit_mask_groups(s: &mut Session, p: &Value, label: &str, f: impl Fn(&mut PropGroup) -> Result<()>) -> Result<Value> {
+    let (cid, targets) = masks_for(s, p)?;
+    if targets.is_empty() {
+        return Err(bad(label, "no masks: select a layer with masks (or mask vertices)"));
+    }
+    let n = targets.len();
+    s.edit(label, None, |proj, _| {
+        for (lid, uid) in &targets {
+            let l = layer_mut(proj, cid, *lid)?;
+            if let Some(g) = l.props.sub_mut("masks").and_then(|m| m.find_group_mut(*uid)) {
+                f(g)?;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(json!({"masks": n}))
+}
+
+fn roto_bezier(s: &mut Session, p: &Value) -> Result<Value> {
+    let (cid, targets) = masks_for(s, p)?;
+    let comp = s.project.comp(cid).ok_or(EngineError::NoComp)?;
+    let all_on = targets.iter().all(|(l, u)| comp.layer(*l).and_then(|l| l.masks()).and_then(|m| m.find_group(*u)).is_some_and(is_roto));
+    let on = b_p(p, "value").unwrap_or(!all_on);
+    edit_mask_groups(s, p, "RotoBezier", |g| {
+        if let GroupKind::Mask { roto_bezier, .. } = &mut g.kind {
+            *roto_bezier = on;
+        }
+        if on {
+            map_path(g, &roto_smooth);
+        }
+        Ok(())
+    })?;
+    Ok(json!({"rotoBezier": on}))
+}
+
+/// The parametric shape paths that Convert To Bezier Path replaces with an editable path.
+const PARAMETRIC: [&str; 3] = ["rect", "ellipse", "star"];
+
+/// The path a parametric shape group draws, in the group's own space. This is the geometry the
+/// renderer builds from the same values (`render::shapes::collect`), expressions included, so the
+/// converted path is the shape that was on screen rather than an approximation of it; the defaults
+/// match that code for a property a group doesn't carry (a polygon has no inner radius or
+/// roundness).
+fn parametric_path(ctx: &EvalCtx, layer: &effectz_project::Layer, g: &PropGroup) -> Option<ShapePath> {
+    let f = |id: &str, d: f64| ctx.f(layer, g, id, d);
+    let v2 = |id: &str, d: [f64; 2]| ctx.v2(layer, g, id, d);
+    let path = match g.match_id.as_str() {
+        "rect" => {
+            let (size, pos) = (v2("size", [100.0; 2]), v2("position", [0.0; 2]));
+            if ctx.b(layer, g, "perCorner") {
+                effectz_path::rect_radii(
+                    size,
+                    pos,
+                    [f("topLeftRoundness", 0.0), f("topRightRoundness", 0.0), f("bottomRightRoundness", 0.0), f("bottomLeftRoundness", 0.0)],
+                )
+            } else {
+                effectz_path::rect(size, pos, f("roundness", 0.0))
+            }
+        }
+        "ellipse" => effectz_path::ellipse(v2("size", [100.0; 2]), v2("position", [0.0; 2])),
+        "star" => effectz_path::polystar(effectz_path::Polystar {
+            star: ctx.e(layer, g, "type") == 0,
+            points: f("points", 5.0),
+            pos: v2("position", [0.0; 2]),
+            rotation: f("rotation", 0.0),
+            inner: f("innerRadius", 50.0),
+            outer: f("outerRadius", 100.0),
+            inner_round: f("innerRoundness", 0.0),
+            outer_round: f("outerRoundness", 0.0),
+        }),
+        _ => return None,
+    };
+    // A closed parametric shape is one subpath; anything else would not be this shape.
+    effectz_path::from_kurbo(&path).into_iter().next()
+}
+
+/// How deep [`parametric_in`] looks into nested shape groups; deeper ones are left alone.
+const MAX_SHAPE_DEPTH: usize = 64;
+
+/// The parametric paths in `g` (itself, if it is one), in drawing order.
+fn parametric_in(g: &PropGroup, lid: LayerId, depth: usize, out: &mut Vec<(LayerId, Uid)>) {
+    if PARAMETRIC.contains(&g.match_id.as_str()) {
+        out.push((lid, g.uid));
+        return;
+    }
+    if depth >= MAX_SHAPE_DEPTH {
+        return;
+    }
+    for c in g.groups() {
+        parametric_in(c, lid, depth + 1, out);
+    }
+}
+
+/// Converts masks and the selected parametric shape paths (Rectangle, Ellipse, Polystar) to editable Bezier paths of the same geometry at the current time.
+/// Items on locked layers are skipped, and it errors when nothing is left to convert.
+fn convert_to_bezier(s: &mut Session, p: &Value) -> Result<Value> {
+    // On a shape layer this replaces a Rectangle, Ellipse or Polystar path with an editable
+    // Path 1 of the same geometry, as After Effects does (#932). The parametric properties are
+    // read at the current time and the path that comes out is static: a size or roundness
+    // animation cannot survive the conversion, in After Effects either.
+    const LABEL: &str = "Convert To Bezier Path";
+    // An explicit `mask` is what converts: selected shape items (or `items`) don't take its place,
+    // and a `mask` that matches nothing is reported below rather than converting a shape.
+    // The composition is the one `comp` names (else the active one), as the mask and layer
+    // resolvers use; a selection made in another composition doesn't apply to it.
+    let cid = comp_id(s, p)?;
+    let mut items = if p.get("mask").is_some() {
+        Vec::new()
+    } else {
+        let (items_cid, items) = selected_shape_items(s, p, "path.convertToBezier")?;
+        if items_cid == cid { items } else { Vec::new() }
+    };
+    // `items` count as given only as a list, as `selected_shape_items` reads them; a null or other
+    // value leaves the selection in charge.
+    let explicit_items = matches!(p.get("items"), Some(Value::Array(_)));
+    // An explicit `layer` / `layers` limits the selected shape items to those layers.
+    let explicit_layers = p.get("layer").is_some_and(|v| !v.is_null()) || p.get("layers").is_some();
+    if explicit_layers && !explicit_items {
+        let (_, layers) = layers_p(s, p)?;
+        items.retain(|(l, _)| layers.contains(l));
+    }
+    // Items on a locked layer are left alone (an error when they all are), whether they come from
+    // the selection or from `items`.
+    if !items.is_empty() {
+        let mut item_layers: Vec<LayerId> = items.iter().map(|(l, _)| *l).collect();
+        item_layers.sort();
+        item_layers.dedup();
+        let open = unlocked(s, cid, item_layers, "path.convertToBezier")?;
+        items.retain(|(l, _)| open.contains(l));
+    }
+    let comp = s.project.comp(cid).ok_or(EngineError::NoComp)?;
+    // A selected parametric path converts itself, animated or not (After Effects keeps the shape
+    // at the current time). A selected shape group converts the parametric paths inside it
+    // (#3057: selecting Rectangle 1 rather than its Rectangle Path 1 reported "no masks"), but
+    // leaves the animated ones alone, as converting a whole layer does.
+    let mut shapes: Vec<(LayerId, Uid)> = Vec::new();
+    let mut skipped: Vec<(LayerId, Uid)> = Vec::new();
+    for (lid, uid) in &items {
+        let Some(g) = comp.layer(*lid).and_then(|l| l.props.sub("contents")).and_then(|c| c.find_group(*uid)) else { continue };
+        if PARAMETRIC.contains(&g.match_id.as_str()) {
+            shapes.push((*lid, *uid));
+            continue;
+        }
+        let mut found = Vec::new();
+        parametric_in(g, *lid, 0, &mut found);
+        for (fl, fu) in found {
+            if g.find_group(fu).is_some_and(PropGroup::any_animated) {
+                skipped.push((fl, fu));
+            } else {
+                shapes.push((fl, fu));
+            }
+        }
+    }
+    shapes.sort();
+    shapes.dedup();
+    // A path both selected itself and inside a selected group converts; it is not skipped.
+    skipped.sort();
+    skipped.dedup();
+    skipped.retain(|x| !shapes.contains(x));
+    let mut skipped_animated = skipped.len();
+    // Masks the selection targets too (a selected mask or one of its properties, mask vertices)
+    // convert with the shape paths in the same step, as the command acts on every selected path:
+    // selecting a mask and a Rectangle path must not convert only the rectangle.
+    // Explicit `items` name exactly what converts: the selection adds no masks to them.
+    let mut sel_masks: Vec<(LayerId, Uid)> = Vec::new();
+    if !shapes.is_empty() && !explicit_items {
+        let masks_of = |l: LayerId| comp.layer(l).filter(|ly| !ly.switches.locked).and_then(|ly| ly.masks());
+        for (l, u) in &s.state.selected_props {
+            let Some(m) = masks_of(*l) else { continue };
+            sel_masks.extend(m.groups().filter(|g| g.uid == *u || g.find(*u).is_some()).map(|g| (*l, g.uid)));
+        }
+        for v in &s.state.selected_vertices {
+            if masks_of(v.layer).is_some_and(|m| m.groups().any(|g| g.uid == v.mask)) {
+                sel_masks.push((v.layer, v.mask));
+            }
+        }
+        if explicit_layers {
+            let (_, layers) = layers_p(s, p)?;
+            sel_masks.retain(|(l, _)| layers.contains(l));
+        }
+        sel_masks.sort();
+        sel_masks.dedup();
+    }
+    if shapes.is_empty() {
+        // Explicit `items` with nothing parametric in them (a Fill, a path that is already Bezier)
+        // convert nothing: they don't hand the conversion to a selected mask or the layer's masks.
+        if explicit_items && p.get("mask").is_none() {
+            let why = if skipped_animated > 0 {
+                "the parametric paths are animated: name the path itself in `items` to convert it at the current time (its animation is lost)"
+            } else {
+                "nothing to convert: the given items have no Rectangle, Ellipse or Polystar path"
+            };
+            return Err(bad(LABEL, why));
+        }
+        let (_, mut masks) = masks_for(s, p)?;
+        let mask_of = |l: LayerId, u: Uid| comp.layer(l).and_then(|l| l.masks()).and_then(|m| m.groups().find(|g| g.uid == u));
+        masks.retain(|(l, u)| mask_of(*l, *u).is_some());
+        // An explicit `layer` / `layers` is the scope: a mask selected on another layer is not
+        // converted in its place. With none of the selected masks in scope, the scoped layers'
+        // own masks are the targets, as for a selected layer.
+        let scope = if explicit_layers { Some(layers_p(s, p)?.1) } else { None };
+        let in_scope = |l: &LayerId| scope.as_ref().is_none_or(|v| v.contains(l));
+        if let Some(layers) = &scope {
+            masks.retain(|(l, _)| layers.contains(l));
+            if masks.is_empty() && p.get("mask").is_none() {
+                for l in layers {
+                    if let Some(m) = comp.layer(*l).and_then(|ly| ly.masks()) {
+                        masks.extend(m.groups().map(|g| (*l, g.uid)));
+                    }
+                }
+            }
+        }
+        masks.sort();
+        masks.dedup();
+        // Masks on a locked layer are left alone, as shape items are. This comes after the scope
+        // and its fallback, so a locked selected mask doesn't hand the conversion to other masks.
+        let mut mask_layers: Vec<LayerId> = masks.iter().map(|(l, _)| *l).collect();
+        mask_layers.dedup();
+        masks.retain(|(l, _)| comp.layer(*l).is_some_and(|ly| !ly.switches.locked));
+        // Masks take priority when they are targeted (a `mask`, a selected mask or mask vertices)
+        // or when one of them has RotoBezier tangents to turn off. A selected layer's plain masks
+        // are already Bezier paths: converting them would do nothing and hide the layer's
+        // parametric shapes (#3057).
+        let mask_targeted = p.get("mask").is_some()
+            || (p.get("layer").is_none() && s.state.selected_vertices.iter().any(|v| in_scope(&v.layer)))
+            || s.state
+                .selected_props
+                .iter()
+                .any(|(l, u)| in_scope(l) && comp.layer(*l).and_then(|l| l.masks()).is_some_and(|m| m.uid != *u && m.find_group(*u).is_some()));
+        let any_roto = masks.iter().any(|(l, u)| mask_of(*l, *u).is_some_and(is_roto));
+        // Every targeted mask is on a locked layer: say so rather than convert anything else.
+        if mask_targeted && masks.is_empty() && !mask_layers.is_empty() {
+            unlocked(s, cid, mask_layers, "path.convertToBezier")?;
+            return Err(bad(LABEL, "the masks are on locked layers"));
+        }
+        // A selected group whose paths were all skipped as animated reports that, rather than
+        // turning to the layer's masks.
+        if !masks.is_empty() && (mask_targeted || (any_roto && skipped_animated == 0)) {
+            // The scoped targets are edited as resolved here, not looked up again.
+            let n = masks.len();
+            s.edit(LABEL, None, |proj, _| {
+                for (lid, uid) in &masks {
+                    let l = layer_mut(proj, cid, *lid)?;
+                    if let Some(g) = l.props.sub_mut("masks").and_then(|m| m.find_group_mut(*uid))
+                        && let GroupKind::Mask { roto_bezier, .. } = &mut g.kind
+                    {
+                        *roto_bezier = false;
+                    }
+                }
+                Ok(())
+            })?;
+            return Ok(json!({"masks": n}));
+        }
+        if p.get("mask").is_some() {
+            return Err(bad(LABEL, "no mask matches `mask`"));
+        }
+        // Only layers selected (#3057): a shape layer drawn with the Rectangle, Ellipse or Polygon
+        // tool converts its parametric paths, as the masks of a selected layer do. A selected
+        // shape item with nothing parametric in it (a Fill, a Bezier path) is not widened to the
+        // whole layer, and an animated parametric path is left alone here: converting keeps only
+        // the shape at the current time, so that takes selecting the path itself.
+        if items.is_empty() {
+            let (lcid, mut layers) = layers_p(s, p)?;
+            // A layer named twice (`layers: [1, "Shape 1"]`) converts once: its paths would
+            // otherwise be replaced twice, and the second replacement finds no such item.
+            layers.sort();
+            layers.dedup();
+            if lcid == cid {
+                for lid in unlocked(s, cid, layers, "path.convertToBezier")? {
+                    let Some(l) = comp.layer(lid).filter(|l| matches!(l.source, LayerSource::Shape)) else { continue };
+                    let Some(contents) = l.props.sub("contents") else { continue };
+                    let mut found = Vec::new();
+                    parametric_in(contents, lid, 0, &mut found);
+                    for (fl, fu) in found {
+                        if contents.find_group(fu).is_some_and(PropGroup::any_animated) {
+                            skipped_animated += 1;
+                        } else {
+                            shapes.push((fl, fu));
+                        }
+                    }
+                }
+            }
+        }
+        if shapes.is_empty() {
+            let why = if skipped_animated > 0 {
+                "the parametric paths are animated: select one in the Timeline to convert it at the current time (its animation is lost)"
+            } else if !masks.is_empty() {
+                "nothing to convert: the masks are already Bezier paths"
+            } else {
+                "nothing to convert: select a Rectangle, Ellipse or Polystar path, a shape layer with one, or a layer with masks"
+            };
+            return Err(bad(LABEL, why));
+        }
+    }
+    let t = s.time();
+    let n = shapes.len();
+    // Read the geometry before editing, with the same expression-aware context the renderer
+    // uses: an expression-driven corner radius, size or position must convert to what is on
+    // screen, not to the property's underlying value.
+    let prepared = {
+        let comp = s.project.comp(cid).ok_or(EngineError::NoComp)?;
+        let ctx = EvalCtx { expr: s.expr.as_deref(), ..EvalCtx::new(&s.project, cid, comp, t) };
+        let mut prepared = Vec::new();
+        for (lid, uid) in &shapes {
+            let Some(l) = comp.layer(*lid) else { continue };
+            let Some(old) = l.props.sub("contents").and_then(|c| c.find_group(*uid)) else { continue };
+            let Some(path) = parametric_path(&ctx, l, old) else { continue };
+            // Path Direction is the shape's own, not a default: reversing is a separate command.
+            prepared.push((*lid, *uid, path, ctx.e(l, old, "direction"), old.enabled));
+        }
+        prepared
+    };
+    let made = s.edit("Convert To Bezier Path", None, |proj, st| {
+        let mut next = proj.next_id;
+        let mut made = Vec::new();
+        for (lid, uid, path, direction, enabled) in prepared {
+            let l = layer_mut(proj, cid, lid)?;
+            let contents = l.props.sub_mut("contents").ok_or_else(|| bad("path.convertToBezier", "not a shape layer"))?;
+            let mut g = build::shape_path(&mut Ids(&mut next), path);
+            if let Some(pr) = g.prop_mut("direction") {
+                pr.value = KV::Enum(direction);
+            }
+            g.enabled = enabled;
+            let new_uid = g.uid;
+            let parent = contents.parent_of_mut(uid).ok_or_else(|| bad("path.convertToBezier", "no such shape item"))?;
+            let Some(at) = parent.children.iter().position(|c| c.uid() == uid) else { continue };
+            parent.children[at] = Node::Group(g);
+            made.push((lid, new_uid));
+        }
+        proj.next_id = next;
+        for (lid, uid) in &sel_masks {
+            let l = layer_mut(proj, cid, *lid)?;
+            if let Some(g) = l.props.sub_mut("masks").and_then(|m| m.find_group_mut(*uid))
+                && let GroupKind::Mask { roto_bezier, .. } = &mut g.kind
+            {
+                *roto_bezier = false;
+            }
+        }
+        // The new paths are what is selected, so the vertices can be edited straight away; the
+        // converted masks stay selected with them.
+        if !made.is_empty() {
+            st.selected_props = made.iter().chain(&sel_masks).copied().collect();
+        }
+        Ok(made)
+    })?;
+    Ok(json!({"paths": made.len(), "of": n, "masks": sel_masks.len(), "skippedAnimated": skipped_animated}))
+}
+
+// ---------------------------------------------------------------- mask options
+
+fn mask_motion_blur(s: &mut Session, p: &Value) -> Result<Value> {
+    let mode = match str_p(p, "mode").unwrap_or("") {
+        "sameAsLayer" | "same" => MaskMotionBlur::SameAsLayer,
+        "on" => MaskMotionBlur::On,
+        "off" => MaskMotionBlur::Off,
+        _ => return Err(bad("layer.mask.motionBlur", "mode: sameAsLayer|on|off")),
+    };
+    edit_mask_groups(s, p, "Mask Motion Blur", |g| {
+        if let GroupKind::Mask { motion_blur, .. } = &mut g.kind {
+            *motion_blur = mode;
+        }
+        Ok(())
+    })
+}
+
+fn feather_falloff(s: &mut Session, p: &Value) -> Result<Value> {
+    let mode = match str_p(p, "mode").unwrap_or("") {
+        "smooth" => FeatherFalloff::Smooth,
+        "linear" => FeatherFalloff::Linear,
+        _ => return Err(bad("layer.mask.featherFalloff", "mode: smooth|linear")),
+    };
+    edit_mask_groups(s, p, "Mask Feather Falloff", |g| {
+        if let GroupKind::Mask { feather_falloff, .. } = &mut g.kind {
+            *feather_falloff = mode;
+        }
+        Ok(())
+    })
+}
+
+fn hide_locked(s: &mut Session, p: &Value) -> Result<Value> {
+    s.state.hide_locked_masks = b_p(p, "value").unwrap_or(!s.state.hide_locked_masks);
+    Ok(json!(s.state.hide_locked_masks))
+}
+
+// ---------------------------------------------------------------- vertices
+
+fn has_one_vertex(s: &Session) -> std::result::Result<(), String> {
+    has_comp(s)?;
+    if s.state.selected_vertices.len() == 1 { Ok(()) } else { Err("select one mask vertex".into()) }
+}
+
+fn set_first_vertex(s: &mut Session, p: &Value) -> Result<Value> {
+    let v = match (p.get("layer"), p.get("mask"), p.get("index").and_then(Value::as_u64)) {
+        (Some(_), Some(m), Some(i)) => {
+            let (_, lid) = layer_p(s, p, "path.setFirstVertex")?;
+            let mask = m.as_u64().ok_or_else(|| bad("path.setFirstVertex", "`mask` is the mask uid"))?;
+            VertexRef { layer: lid, mask, index: i as usize }
+        }
+        _ => *s
+            .state
+            .selected_vertices
+            .first()
+            .filter(|_| s.state.selected_vertices.len() == 1)
+            .ok_or_else(|| bad("path.setFirstVertex", "select one mask vertex"))?,
+    };
+    let cid = s.active_comp_id().ok_or(EngineError::NoComp)?;
+    s.edit("Set First Vertex", None, |proj, st| {
+        let l = layer_mut(proj, cid, v.layer)?;
+        let g = l.props.sub_mut("masks").and_then(|m| m.find_group_mut(v.mask)).ok_or_else(|| bad("path.setFirstVertex", "no such mask"))?;
+        let k = v.index;
+        let mut err = None;
+        map_path(g, &|sp| {
+            if k < sp.vertices.len() && sp.closed {
+                sp.vertices.rotate_left(k);
+                let n = sp.in_tangents.len();
+                sp.in_tangents.rotate_left(k.min(n));
+                let n = sp.out_tangents.len();
+                sp.out_tangents.rotate_left(k.min(n));
+            }
+        });
+        if let Some(KV::Path(sp)) = g.get("path").map(|p| &p.value)
+            && !sp.closed
+        {
+            err = Some(bad("path.setFirstVertex", "open paths always start at their first vertex"));
+        }
+        if let Some(e) = err {
+            return Err(e);
+        }
+        st.selected_vertices = vec![VertexRef { index: 0, ..v }];
+        Ok(())
+    })?;
+    Ok(json!({"first": v.index}))
+}
+
+/// Free Transform Points: scale / rotate / move the selected vertices (or whole masks) about an
+/// anchor (default: the centre of their bounding box), at the current time.
+fn free_transform(s: &mut Session, p: &Value) -> Result<Value> {
+    let scale = match p.get("scale") {
+        Some(Value::Number(n)) => {
+            let k = n.as_f64().unwrap_or(100.0) / 100.0;
+            [k, k]
+        }
+        Some(Value::Array(a)) if a.len() >= 2 => [a[0].as_f64().unwrap_or(100.0) / 100.0, a[1].as_f64().unwrap_or(100.0) / 100.0],
+        _ => [1.0, 1.0],
+    };
+    let rot = f_p(p, "rotation").unwrap_or(0.0).to_radians();
+    let off =
+        p.get("offset").and_then(Value::as_array).map(|a| [a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0)]);
+    let off = off.unwrap_or([0.0; 2]);
+    let anchor =
+        p.get("anchor").and_then(Value::as_array).map(|a| [a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0)]);
+    if scale == [1.0, 1.0] && rot == 0.0 && off == [0.0, 0.0] {
+        return Err(bad("path.freeTransform", "pass scale (% or [x%, y%]), rotation (deg) and/or offset [dx, dy]; anchor? [x, y]"));
+    }
+    let (cid, targets) = masks_for(s, p)?;
+    let selected: Vec<VertexRef> = s.state.selected_vertices.clone();
+    let t = s.time();
+    let (c, sn) = (rot.cos(), rot.sin());
+    let lin = |v: [f64; 2]| {
+        let x = v[0] * scale[0];
+        let y = v[1] * scale[1];
+        [x * c - y * sn, x * sn + y * c]
+    };
+    let n = s.edit("Free Transform Points", merge_p(p), |proj, _| {
+        let mut n = 0;
+        for (lid, uid) in &targets {
+            let l = layer_mut(proj, cid, *lid)?;
+            let lt = l.layer_time(t);
+            let Some(g) = l.props.find_group_mut(*uid).filter(|g| super::mask::is_path_group(g)) else { continue };
+            let roto = is_roto(g);
+            let Some(pr) = g.get_mut("path") else { continue };
+            let KV::Path(mut sp) = pr.value_at(lt) else { continue };
+            let idx: Vec<usize> = {
+                let sel: Vec<usize> =
+                    selected.iter().filter(|v| v.layer == *lid && v.mask == *uid).map(|v| v.index).filter(|i| *i < sp.vertices.len()).collect();
+                if sel.is_empty() { (0..sp.vertices.len()).collect() } else { sel }
+            };
+            if idx.is_empty() {
+                continue;
+            }
+            let a = anchor.unwrap_or_else(|| {
+                let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
+                for &i in &idx {
+                    let v = sp.vertices[i];
+                    lo = [lo[0].min(v[0]), lo[1].min(v[1])];
+                    hi = [hi[0].max(v[0]), hi[1].max(v[1])];
+                }
+                [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0]
+            });
+            for &i in &idx {
+                let v = sp.vertices[i];
+                let q = lin([v[0] - a[0], v[1] - a[1]]);
+                sp.vertices[i] = [q[0] + a[0] + off[0], q[1] + a[1] + off[1]];
+                if let Some(tn) = sp.in_tangents.get_mut(i) {
+                    *tn = lin(*tn);
+                }
+                if let Some(tn) = sp.out_tangents.get_mut(i) {
+                    *tn = lin(*tn);
+                }
+                n += 1;
+            }
+            if roto {
+                roto_smooth(&mut sp);
+            }
+            pr.set_value_at(lt, KV::Path(sp));
+        }
+        Ok(n)
+    })?;
+    Ok(json!({"vertices": n}))
+}
+
+// ---------------------------------------------------------------- shape groups
+
+const SHAPE_ITEMS: &[&str] = &[
+    "group", "rect", "ellipse", "star", "path", "fill", "stroke", "gfill", "gstroke", "trim", "repeater", "round", "offset", "pucker", "twist", "zigzag",
+    "wiggle", "wiggler", "merge", "front", "bevel", "side", "back",
+];
+
+/// Selected shape items (contents entries) of shape layers: (layer, uid), with their composition.
+/// Explicit `items` are on the layer `layer_p` resolves, in the composition it resolves (`comp`,
+/// else the active one); selected items are the active composition's.
+fn selected_shape_items(s: &Session, p: &Value, cmd: &str) -> Result<(ItemId, Vec<(LayerId, Uid)>)> {
+    if let Some(Value::Array(a)) = p.get("items") {
+        let (cid, lid) = layer_p(s, p, cmd)?;
+        return Ok((cid, a.iter().filter_map(Value::as_u64).map(|u| (lid, u)).collect()));
+    }
+    let cid = s.active_comp_id().ok_or(EngineError::NoComp)?;
+    let comp = s.project.comp(cid).ok_or(EngineError::NoComp)?;
+    let mut out = vec![];
+    for (lid, uid) in &s.state.selected_props {
+        let Some(l) = comp.layer(*lid).filter(|l| matches!(l.source, LayerSource::Shape)) else { continue };
+        if l.props
+            .sub("contents")
+            .and_then(|c| c.find_group(*uid))
+            .is_some_and(|g| g.uid != l.props.sub("contents").map(|c| c.uid).unwrap_or(0) && SHAPE_ITEMS.contains(&g.match_id.as_str()))
+        {
+            out.push((*lid, *uid));
+        }
+    }
+    Ok((cid, out))
+}
+
+fn has_shape_items(s: &Session) -> std::result::Result<(), String> {
+    has_layers(s)?;
+    let comp = s.active_comp().ok_or("no composition")?;
+    let ok = s.state.selected_props.iter().any(|(l, u)| {
+        comp.layer(*l).and_then(|l| l.props.sub("contents")).and_then(|c| c.find_group(*u)).is_some_and(|g| SHAPE_ITEMS.contains(&g.match_id.as_str()))
+    });
+    if ok { Ok(()) } else { Err("select shape items (Contents ▸ …) in the timeline".into()) }
+}
+
+/// Wraps the selected shape items of one layer in a new group placed where the first of them was.
+/// Errors when no shape items are selected or they do not share one parent group.
+fn group_shapes(s: &mut Session, p: &Value) -> Result<Value> {
+    let (cid, items) = selected_shape_items(s, p, "path.groupShapes")?;
+    let Some(lid) = items.first().map(|x| x.0) else { return Err(bad("path.groupShapes", "select shape items to group")) };
+    let uids: Vec<Uid> = items.iter().filter(|(l, _)| *l == lid).map(|(_, u)| *u).collect();
+    let g = s.edit("Group Shapes", None, |proj, st| {
+        let mut next = proj.next_id;
+        let l = layer_mut(proj, cid, lid)?;
+        let contents = l.props.sub_mut("contents").ok_or_else(|| bad("path.groupShapes", "not a shape layer"))?;
+        let parent = contents.parent_of_mut(uids[0]).ok_or_else(|| bad("path.groupShapes", "no such shape item"))?;
+        if !uids.iter().all(|u| parent.children.iter().any(|c| c.uid() == *u)) {
+            return Err(bad("path.groupShapes", "the shape items must be in the same group"));
+        }
+        let at = parent.children.iter().position(|c| uids.contains(&c.uid())).unwrap_or(0);
+        let mut moved = vec![];
+        parent.children.retain(|c| {
+            if uids.contains(&c.uid()) {
+                moved.push(c.clone());
+                false
+            } else {
+                true
+            }
+        });
+        let n = parent.children.iter().filter(|c| c.match_id() == "group").count() + 1;
+        let groups: Vec<PropGroup> = moved.into_iter().filter_map(|c| if let Node::Group(g) = c { Some(g) } else { None }).collect();
+        let g = build::shape_group(&mut Ids(&mut next), &format!("Group {n}"), groups);
+        let uid = g.uid;
+        parent.children.insert(at.min(parent.children.len()), Node::Group(g));
+        proj.next_id = next;
+        st.selected_props = vec![(lid, uid)];
+        Ok(uid)
+    })?;
+    Ok(json!({"group": g}))
+}
+
+/// Add `d` to every positional value in a shape item subtree (shape positions, path vertices,
+/// group positions, gradient points, twist centres) — static values and keys.
+fn offset_items(g: &mut PropGroup, d: [f64; 2]) {
+    let shift = |v: &mut KV| match v {
+        KV::Vec2(a) => {
+            a[0] += d[0];
+            a[1] += d[1];
+        }
+        KV::Path(sp) => {
+            for q in &mut sp.vertices {
+                q[0] += d[0];
+                q[1] += d[1];
+            }
+        }
+        _ => {}
+    };
+    let props: &[&str] = match g.match_id.as_str() {
+        "rect" | "ellipse" | "star" => &["position"],
+        "path" => &["path"],
+        "gfill" | "gstroke" => &["start", "end"],
+        "twist" => &["center"],
+        _ => &[],
+    };
+    for m in props {
+        if let Some(pr) = g.get_mut(m) {
+            shift(&mut pr.value);
+            for k in &mut pr.keys {
+                shift(&mut k.value);
+            }
+        }
+    }
+    if g.match_id == "group"
+        && let Some(pr) = g.sub_mut("transform").and_then(|t| t.get_mut("position"))
+    {
+        shift(&mut pr.value);
+        for k in &mut pr.keys {
+            shift(&mut k.value);
+        }
+    }
+}
+
+/// Replaces each selected shape group with its children, baking the group's position offset into them.
+/// Errors when no group is selected or a group has a scale, rotation, skew, opacity or animated transform.
+fn ungroup_shapes(s: &mut Session, p: &Value) -> Result<Value> {
+    let (cid, items) = selected_shape_items(s, p, "path.ungroupShapes")?;
+    let comp = s.project.comp(cid).ok_or(EngineError::NoComp)?;
+    let groups: Vec<(LayerId, Uid)> = items
+        .into_iter()
+        .filter(|(l, u)| comp.layer(*l).and_then(|l| l.props.sub("contents")).and_then(|c| c.find_group(*u)).is_some_and(|g| g.match_id == "group"))
+        .collect();
+    if groups.is_empty() {
+        return Err(bad("path.ungroupShapes", "select a shape group to ungroup"));
+    }
+    let n = groups.len();
+    s.edit("Ungroup Shapes", None, |proj, st| {
+        let mut sel = vec![];
+        for (lid, uid) in &groups {
+            let l = layer_mut(proj, cid, *lid)?;
+            let Some(contents) = l.props.sub_mut("contents") else { continue };
+            let Some(parent) = contents.parent_of_mut(*uid) else { continue };
+            let Some(i) = parent.children.iter().position(|c| c.uid() == *uid) else { continue };
+            let Node::Group(g) = parent.children.remove(i) else { continue };
+            // The group's transform must be a plain (static) move: it is baked into the items.
+            let tr = g.sub("transform");
+            let get = |m: &str| tr.and_then(|t| t.get(m));
+            let animated = tr.is_some_and(|t| t.any_animated());
+            let v2 = |m: &str, d: [f64; 2]| get(m).map(|p| p.value.as_vec2()).unwrap_or(d);
+            let f = |m: &str, d: f64| get(m).map(|p| p.value.as_f64()).unwrap_or(d);
+            let (a, pos, sc) = (v2("anchor", [0.0; 2]), v2("position", [0.0; 2]), v2("scale", [100.0; 2]));
+            if animated || sc != [100.0, 100.0] || f("rotation", 0.0) != 0.0 || f("skew", 0.0) != 0.0 || f("opacity", 100.0) != 100.0 {
+                return Err(bad(
+                    "path.ungroupShapes",
+                    format!("`{}` has a scale, rotation, skew, opacity or animated transform: reset it before ungrouping", g.name),
+                ));
+            }
+            let d = [pos[0] - a[0], pos[1] - a[1]];
+            let mut inner: Vec<Node> = g.sub("contents").map(|c| c.children.clone()).unwrap_or_default();
+            for c in &mut inner {
+                if let Node::Group(ig) = c {
+                    if d != [0.0, 0.0] {
+                        offset_items(ig, d);
+                    }
+                    sel.push((*lid, ig.uid));
+                }
+            }
+            for (k, c) in inner.into_iter().enumerate() {
+                parent.children.insert(i + k, c);
+            }
+        }
+        st.selected_props = sel;
+        Ok(())
+    })?;
+    Ok(json!({"ungrouped": n}))
+}
+
+/// The command specs for the path commands: RotoBezier, Convert To Bezier Path, Group Shapes, Ungroup Shapes and the rest of this module.
+pub fn specs() -> Vec<CommandSpec> {
+    vec![
+        cmd!("path.toggleClosed", "Closed", ["Layer", "Mask and Shape Path"], None, "{}", closed::has_paths, closed::toggle_closed),
+        cmd!("path.rotoBezier", "RotoBezier", ["Layer", "Mask and Shape Path"], None, "{layer?, mask?, value?}", has_layers, roto_bezier),
+        cmd!(
+            "path.convertToBezier",
+            "Convert To Bezier Path",
+            ["Layer", "Mask and Shape Path"],
+            None,
+            "{layer?, layers?, mask?, items?: [uid]}",
+            has_layers,
+            convert_to_bezier
+        ),
+        cmd!("path.groupShapes", "Group Shapes", ["Layer"], Some("Cmd+G"), "{layer?, items?: [uid]}", has_shape_items, group_shapes),
+        cmd!("path.ungroupShapes", "Ungroup Shapes", ["Layer"], Some("Cmd+Shift+G"), "{layer?, items?: [group uid]}", has_shape_items, ungroup_shapes),
+        cmd!(
+            "path.setFirstVertex",
+            "Set First Vertex",
+            ["Layer", "Mask and Shape Path"],
+            None,
+            "{layer?, mask?: uid, index?}",
+            has_one_vertex,
+            set_first_vertex
+        ),
+        cmd!(
+            "path.freeTransform",
+            "Free Transform Points",
+            ["Layer", "Mask and Shape Path"],
+            None,
+            "{layer?, mask?, scale?: % | [x%, y%], rotation?: deg, offset?: [dx, dy], anchor?: [x, y], merge?: string}",
+            has_layers,
+            free_transform
+        ),
+        cmd!("layer.mask.motionBlur", "Motion Blur", [], None, "{layer?, mask?, mode: sameAsLayer|on|off}", has_layers, mask_motion_blur),
+        cmd!("layer.mask.featherFalloff", "Feather Falloff", [], None, "{layer?, mask?, mode: smooth|linear}", has_layers, feather_falloff),
+        cmd!("layer.mask.hideLocked", "Hide Locked Masks", ["Layer", "Mask"], None, "{value?}", has_comp, hide_locked),
+    ]
+}

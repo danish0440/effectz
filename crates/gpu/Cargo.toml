@@ -21,10 +21,14 @@ effectz-keyframe = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 log = { workspace = true }
+rayon = { workspace = true }
 web-time = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-registry = "=0.6.1"
 
 [dev-dependencies]
 effectz-text = { workspace = true }
